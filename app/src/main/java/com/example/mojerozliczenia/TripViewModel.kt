@@ -45,16 +45,15 @@ class TripViewModel(private val dao: AppDao) : ViewModel() {
         }
     }
 
-    // --- NOWA FUNKCJA ---
     fun deleteTrip(tripId: Long) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
             dao.deleteEntireTrip(tripId)
-            loadTrips() // Odśwież listę po usunięciu
+            loadTrips()
         }
     }
 
-    // Funkcja importu (zachowujemy ją)
+    // Funkcja importu
     fun importTrip(json: String) {
         viewModelScope.launch {
             val data = ExportUtils.jsonToTrip(json) ?: return@launch

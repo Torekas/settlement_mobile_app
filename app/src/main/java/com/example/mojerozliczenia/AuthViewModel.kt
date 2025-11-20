@@ -75,7 +75,6 @@ class AuthViewModel(private val dao: AppDao, private val sessionManager: Session
         }
     }
 
-    // --- TO JEST FUNKCJA, KTÓREJ BRAKOWAŁO ---
     fun loginWithBiometrics(onSuccess: (Long) -> Unit) {
         val username = _uiState.value.username.trim()
         if (username.isBlank()) {
@@ -86,7 +85,6 @@ class AuthViewModel(private val dao: AppDao, private val sessionManager: Session
         viewModelScope.launch {
             val user = dao.getUserByName(username)
             if (user != null) {
-                // Sukces! Logujemy usera (można też zapisać sesję)
                 sessionManager.saveUserSession(user.userId)
                 onSuccess(user.userId)
             } else {

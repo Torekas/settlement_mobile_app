@@ -8,7 +8,7 @@ import com.google.gson.Gson
 data class ExportedTrip(
     val name: String,
     val mainCurrency: String,
-    val members: List<String>, // Lista imion
+    val members: List<String>,
     val transactions: List<ExportedTransaction>
 )
 
@@ -19,8 +19,8 @@ data class ExportedTransaction(
     val category: String,
     val exchangeRate: Double,
     val isRepayment: Boolean,
-    val payerName: String, // Kto płacił (imię)
-    val beneficiaryNames: List<String> // Kto korzystał (imiona)
+    val payerName: String,
+    val beneficiaryNames: List<String>
 )
 
 object ExportUtils {

@@ -113,7 +113,6 @@ fun TripListScreen(
             }
         }
 
-        // Dialog dodawania
         if (state.showAddDialog) {
             AddTripDialog(
                 onDismiss = { viewModel.setDialogVisibility(false) },
@@ -123,7 +122,6 @@ fun TripListScreen(
             )
         }
 
-        // --- NOWY DIALOG POTWIERDZENIA USUWANIA ---
         if (tripToDelete != null) {
             AlertDialog(
                 onDismissRequest = { tripToDelete = null },
@@ -161,7 +159,6 @@ fun TripItem(trip: Trip, onClick: () -> Unit, onDelete: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Lewa strona (Teksty)
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = trip.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(4.dp))
@@ -173,7 +170,6 @@ fun TripItem(trip: Trip, onClick: () -> Unit, onDelete: () -> Unit) {
                 }
             }
 
-            // Prawa strona (Przycisk usuwania)
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Usuń wyjazd", tint = Color.Gray)
             }

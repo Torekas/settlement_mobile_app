@@ -294,7 +294,6 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
     }
 }
 
-// --- NOWY KOMPONENT: AVATAR UŻYTKOWNIKA ---
 @Composable
 fun UserAvatar(name: String, modifier: Modifier = Modifier) {
     val color = getNameColor(name)
@@ -315,7 +314,6 @@ fun UserAvatar(name: String, modifier: Modifier = Modifier) {
     }
 }
 
-// --- NOWY KOMPONENT: NOWOCZESNA KARTA DŁUGU ---
 @Composable
 fun ModernDebtItem(fromName: String, toName: String, amount: Double, currency: String, onSettleClick: () -> Unit) {
     Card(
@@ -379,8 +377,6 @@ fun ModernDebtItem(fromName: String, toName: String, amount: Double, currency: S
         }
     }
 }
-
-// --- POZOSTAŁE KOMPONENTY (Bez zmian) ---
 
 @Composable
 fun PieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {

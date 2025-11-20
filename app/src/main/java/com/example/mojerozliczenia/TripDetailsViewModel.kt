@@ -101,7 +101,6 @@ class TripDetailsViewModel(private val dao: AppDao) : ViewModel() {
         }
     }
 
-    // --- TO JEST FUNKCJA, KTÓREJ BRAKOWAŁO ---
     fun prepareExport(onReady: (String) -> Unit) {
         viewModelScope.launch {
             val state = _uiState.value

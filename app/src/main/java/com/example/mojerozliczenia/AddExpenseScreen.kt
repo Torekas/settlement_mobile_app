@@ -140,12 +140,10 @@ fun AddExpenseScreen(tripId: Long, viewModel: AddExpenseViewModel, onBack: () ->
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize().verticalScroll(rememberScrollState())) {
-            // POLE TYTUŁU Z AUTO-ANALIZĄ
             OutlinedTextField(
                 value = title,
                 onValueChange = {
                     title = it
-                    // Tutaj dzieje się magia: przy każdym wpisanym znaku sprawdzamy kategorię
                     viewModel.analyzeTitleAndCategorize(it)
                 },
                 label = { Text("Co kupiono?") },

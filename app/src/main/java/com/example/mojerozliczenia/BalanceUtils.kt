@@ -12,7 +12,6 @@ data class Debt(
 
 object BalanceUtils {
 
-    // 1. Nowa funkcja publiczna: Zwraca mapę {UserId -> Saldo}
     // Saldo ujemne = dłużnik, Saldo dodatnie = nadpłacający
     fun calculateBalances(
         transactions: List<Transaction>,

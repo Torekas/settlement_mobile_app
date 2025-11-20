@@ -15,7 +15,6 @@ data class AddExpenseUiState(
     val fetchedRate: Double? = null,
     val suggestedPayerId: Long = -1,
     val splitItems: List<SplitItemUi> = emptyList(),
-    // NOWOŚĆ: Kategoria jest teraz w stanie ViewModelu (domyślnie FOOD)
     val selectedCategory: String = "FOOD"
 )
 
@@ -36,11 +35,48 @@ class AddExpenseViewModel(private val dao: AppDao) : ViewModel() {
 
     // --- SŁOWNIK INTELIGENTNEJ KATEGORYZACJI ---
     private val categoryKeywords = mapOf(
-        "FOOD" to listOf("PIZZA", "BURGER", "KEBAB", "OBIAD", "KOLACJA", "KAWA", "LUNCH", "RESTAURACJA", "BAR", "JEDZENIE", "MCDONALD", "KFC", "SUSHI", "LODY", "BIEDRONKA", "LIDL", "ZABKA", "ŻABKA", "CARREFOUR", "AUCHAN", "DINO"),
-        "TRANSPORT" to listOf("UBER", "BOLT", "TAXI", "TAKSÓWKA", "PALIWO", "BENZYNA", "ORLEN", "BP", "SHELL", "CIRCLE", "BILET", "PKP", "POCIĄG", "AUTOBUS", "PARKING", "AUTOSTRADA"),
-        "SHOPPING" to listOf("ZARA", "HM", "H&M", "CCC", "MEDIA", "RTV", "ROSSMANN", "HEBE", "APTEKA", "ZAKUPY", "PREZENT", "PEPCO", "ACTION"),
-        "ENTERTAINMENT" to listOf("KINO", "CINEMA", "FILM", "NETFLIX", "TEATR", "MUZEUM", "BILET WSTĘPU", "AQUAPARK", "KRĘGLE", "BILARD", "IMPREZA", "ALKOHOL", "PIWO", "WÓDKA", "DRINK", "BAR"),
-        "ACCOMMODATION" to listOf("HOTEL", "HOSTEL", "AIRBNB", "BOOKING", "NOCLEG", "POKÓJ", "APARTAMENT")
+        "FOOD" to listOf(
+            "PIZZA", "BURGER", "KEBAB", "OBIAD", "KOLACJA", "KAWA", "LUNCH", "RESTAURACJA",
+            "BAR", "JEDZENIE", "MCDONALD", "KFC", "SUSHI", "LODY", "BIEDRONKA", "LIDL",
+            "ZABKA", "ŻABKA", "CARREFOUR", "AUCHAN", "DINO",
+            "STOKROTKA", "KAUFLAND", "ALDI", "ŻABKA NANO", "DELIKATESY", "SPOŻYWCZY",
+            "FOOD", "GASTRO", "PIEKARNIA", "PĄCZEK", "BISTRO", "LUNCHBAR", "ŻYWNOŚĆ"
+        ),
+
+        "TRANSPORT" to listOf(
+            "UBER", "BOLT", "TAXI", "TAKSÓWKA", "PALIWO", "BENZYNA", "ORLEN", "BP",
+            "SHELL", "CIRCLE", "BILET", "PKP", "POCIĄG", "AUTOBUS", "PARKING",
+            "AUTOSTRADA",
+            "LOT", "WIZZ", "RYANAIR", "METRO", "TRAMWAJ", "SKM", "MZK", "FLIXBUS",
+            "KOLEJE", "MYJNIA", "PARKOMAT"
+        ),
+
+        "SHOPPING" to listOf(
+            "ZARA", "HM", "H&M", "CCC", "MEDIA", "RTV", "ROSSMANN", "HEBE", "APTEKA",
+            "ZAKUPY", "PREZENT", "PEPCO", "ACTION",
+            "DOUGLAS", "SEPHORA", "EMPIK", "IKEA", "DECATHLON", "ALLEGRO", "AMAZON",
+            "EOBUWIE", "MOHITO", "RESERVED", "SMYK", "KIK", "JYSK", "NEONET"
+        ),
+
+        "ENTERTAINMENT" to listOf(
+            "KINO", "CINEMA", "FILM", "NETFLIX", "TEATR", "MUZEUM", "BILET WSTĘPU",
+            "AQUAPARK", "KRĘGLE", "BILARD", "IMPREZA", "ALKOHOL", "PIWO", "WÓDKA",
+            "DRINK", "BAR", "SPOTIFY", "YOUTUBE", "HBO", "VIAPLAY", "CANAL+", "KONCERT", "KLUB",
+            "ESCAPE ROOM", "EVENT", "FESTIWAL", "PUB"
+        ),
+
+        "ACCOMMODATION" to listOf(
+            "HOTEL", "HOSTEL", "AIRBNB", "BOOKING", "NOCLEG", "POKÓJ", "APARTAMENT",
+            "MOTEL", "RECEPCJA", "ZAKWATEROWANIE", "RESORT", "CAMPING", "SPA"
+        ),
+
+        "OTHER" to listOf(
+            "USŁUGA", "SERVICE", "OPŁATA", "PROWIZJA", "PRZELEW", "PRZEKAZ",
+            "PŁATNOŚĆ", "SUBSKRYPCJA", "SKLEP", "MARKET", "UNKNOWN",
+            "BANK", "MBANK", "ING", "PKO", "SANTANDER", "ALIOR",
+            "SERWIS", "NAPRAWA", "ELEKTRONIKA", "KOMIS",
+            "USŁUGI", "DOSTAWA", "KURIER", "INPOST", "DPD"
+        )
     )
 
     fun loadMembers(tripId: Long) {
@@ -63,16 +99,41 @@ class AddExpenseViewModel(private val dao: AppDao) : ViewModel() {
         }
     }
 
-    // --- NOWA FUNKCJA: ANALIZA TEKSTU ---
+    private fun detectCategory(title: String): String {
+        val clean = title.uppercase(Locale.getDefault())
+
+        // 1. Najpierw exact contains
+        for ((category, keywords) in categoryKeywords) {
+            if (keywords.any { clean.contains(it) }) return category
+        }
+
+        // 2. Potem tokenizacja
+        val tokens = clean.split(" ", "-", "_", "/", ".")
+        for ((category, keywords) in categoryKeywords) {
+            if (keywords.any { tokens.contains(it) }) return category
+        }
+
+        // 3. Prefix matching (np. "MC" → MCDONALD, "CAR" → CARREFOUR)
+        for ((category, keywords) in categoryKeywords) {
+            if (keywords.any { kw -> clean.startsWith(kw.take(3)) }) return category
+        }
+
+        // 4. Fuzzy matching
+        for ((category, keywords) in categoryKeywords) {
+            if (keywords.any { kw -> kw.length > 4 && clean.contains(kw.take(4)) }) return category
+        }
+
+        return "OTHER"
+    }
+
     fun analyzeTitleAndCategorize(title: String) {
         val cleanTitle = title.uppercase(Locale.getDefault())
 
         // Sprawdzamy każdą kategorię
         for ((category, keywords) in categoryKeywords) {
             if (keywords.any { cleanTitle.contains(it) }) {
-                // Znaleziono słowo kluczowe! Zmieniamy kategorię
                 selectCategory(category)
-                return // Kończymy po pierwszym trafieniu
+                return
             }
         }
     }
@@ -80,8 +141,6 @@ class AddExpenseViewModel(private val dao: AppDao) : ViewModel() {
     fun selectCategory(category: String) {
         _uiState.value = _uiState.value.copy(selectedCategory = category)
     }
-
-    // --- RESZTA FUNKCJI BEZ ZMIAN ---
 
     fun fetchRateFromNbp(currency: String) {
         if (currency.equals("PLN", ignoreCase = true)) return
@@ -105,10 +164,6 @@ class AddExpenseViewModel(private val dao: AppDao) : ViewModel() {
         if (current.contains(userId)) current.remove(userId) else current.add(userId)
         _uiState.value = _uiState.value.copy(selectedMembers = current)
     }
-
-    // Funkcje do OCR (jeśli używasz wersji detailed - zostaw, jeśli simple - usuń)
-    // Tutaj zakładam wersję simple (skoro cofnęliśmy), ale zostawiam puste dla kompatybilności
-    // Jeśli masz wersję detailed, wklej tu kod z poprzedniego kroku.
 
     fun saveExpense(title: String, amount: Double, currency: String, category: String, exchangeRate: Double, onFinished: () -> Unit) {
         val state = _uiState.value
