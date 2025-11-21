@@ -13,9 +13,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,7 +45,6 @@ fun TripListScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var tripToDelete by remember { mutableStateOf<Trip?>(null) }
 
-    // --- 1. LAUNCHER DO IMPORTU ---
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -73,13 +73,10 @@ fun TripListScreen(
                     )
                 },
                 actions = {
-                    // --- 2. PRZYCISK IMPORTU ---
                     IconButton(onClick = {
-                        // Otwieramy wybór plików (tylko JSON)
                         importLauncher.launch(arrayOf("application/json"))
                     }) {
-                        // Używamy FileDownload - to standardowa ikona importu/pobierania
-                        Icon(Icons.Default.UploadFile, contentDescription = "Importuj wyjazd")
+                        Icon(Icons.Default.FileDownload, contentDescription = "Importuj wyjazd")
                     }
 
                     IconButton(onClick = onLogout) {
@@ -102,7 +99,7 @@ fun TripListScreen(
         LazyColumn(
             contentPadding = PaddingValues(
                 top = padding.calculateTopPadding() + 8.dp,
-                bottom = padding.calculateBottomPadding() + 80.dp,
+                bottom = padding.calculateBottomPadding() + 160.dp,
                 start = 16.dp,
                 end = 16.dp
             ),
@@ -171,7 +168,27 @@ fun TripListScreen(
                             }
                         }
 
-                        // Przycisk usuwania
+                        // --- IKONA CHMURKI (JEŚLI IMPORTOWANY) ---
+                        // Wyświetlamy w lewym górnym rogu
+                        if (trip.isImported) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(8.dp)
+                                    .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                    .padding(6.dp) // Padding wewnątrz kółka
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Cloud,
+                                    contentDescription = "Zaimportowany",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        // -----------------------------------------
+
+                        // Przycisk usuwania (Prawy górny róg)
                         IconButton(
                             onClick = { tripToDelete = trip },
                             modifier = Modifier

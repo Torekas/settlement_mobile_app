@@ -106,6 +106,9 @@ interface AppDao {
     @Query("DELETE FROM TripMember WHERE tripId = :tripId AND userId = :userId")
     suspend fun removeMemberFromTrip(tripId: Long, userId: Long)
 
+    @Update
+    suspend fun updateTrip(trip: Trip)
+
     @androidx.room.Transaction
     suspend fun deleteEntireTrip(tripId: Long) {
         deleteSplitsByTripId(tripId)

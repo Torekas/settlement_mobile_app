@@ -34,17 +34,21 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
 
@@ -66,9 +70,9 @@ fun TripDetailsScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettleDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
-    var selectedDebt by remember { mutableStateOf<Debt?>(null) }
+    var showEditDialog by remember { mutableStateOf(false) }
 
-    // Stan do usuwania członka ekipy
+    var selectedDebt by remember { mutableStateOf<Debt?>(null) }
     var memberToRemove by remember { mutableStateOf<User?>(null) }
 
     var isVisible by remember { mutableStateOf(false) }
@@ -103,6 +107,10 @@ fun TripDetailsScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { showEditDialog = true }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edytuj wyjazd")
+                        }
+
                         IconButton(onClick = { showExportDialog = true }) {
                             Icon(Icons.Default.Save, contentDescription = "Zapisz do pliku")
                         }
@@ -165,7 +173,41 @@ fun TripDetailsScreen(
                 ) {
                     when (selectedTab) {
                         0 -> { // --- PULPIT ---
-                            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                            Column(
+                                modifier = Modifier.verticalScroll(rememberScrollState()),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+
+                                // 1. DATA WYJAZDU
+                                if (state.trip != null) {
+                                    val dateStr = SimpleDateFormat("dd MMMM yyyy", Locale("pl", "PL")).format(Date(state.trip!!.startDate))
+
+                                    Surface(
+                                        shape = RoundedCornerShape(50),
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        modifier = Modifier.padding(bottom = 12.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.DateRange,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = dateStr,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // 2. KAFELEK WYDATKÓW
                                 GradientCard(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -174,20 +216,20 @@ fun TripDetailsScreen(
                                 ) {
                                     Column(
                                         modifier = Modifier
-                                            .padding(24.dp)
+                                            .padding(vertical = 32.dp, horizontal = 16.dp)
                                             .fillMaxWidth(),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
                                         Text(
                                             "Łączne wydatki",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = Color.White.copy(alpha = 0.8f)
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = Color.White.copy(alpha = 0.9f)
                                         )
-                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Spacer(modifier = Modifier.height(12.dp))
                                         AnimatedAmountText(
                                             targetAmount = state.totalSpent,
                                             currency = state.trip?.mainCurrency ?: "PLN",
-                                            style = MaterialTheme.typography.displayMedium,
+                                            style = MaterialTheme.typography.headlineLarge,
                                             color = Color.White
                                         )
                                     }
@@ -224,7 +266,7 @@ fun TripDetailsScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        "Ekipa",
+                                        "Uczestnicy",
                                         style = MaterialTheme.typography.titleLarge,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -233,19 +275,13 @@ fun TripDetailsScreen(
                                     }
                                 }
 
-                                // --- LISTA EKIPY Z USUWANIEM ---
-                                LazyRow(modifier = Modifier.padding(bottom = 24.dp)) {
+                                LazyRow(modifier = Modifier.padding(bottom = 24.dp).fillMaxWidth()) {
                                     items(state.members) { user ->
                                         Box(modifier = Modifier.padding(end = 12.dp)) {
                                             UserAvatar(
                                                 name = user.username,
-                                                modifier = Modifier.clickable {
-                                                    // Kliknięcie w awatar ustawia osobę do usunięcia i otwiera dialog
-                                                    memberToRemove = user
-                                                }
+                                                modifier = Modifier.clickable { memberToRemove = user }
                                             )
-
-                                            // Mały minusik przy awatarze (opcjonalnie, dla jasności)
                                             Icon(
                                                 imageVector = Icons.Default.RemoveCircle,
                                                 contentDescription = "Usuń",
@@ -257,91 +293,122 @@ fun TripDetailsScreen(
                                         }
                                     }
                                 }
-                                // -------------------------------
 
+                                // --- STRUKTURA WYDATKÓW (ZMODYFIKOWANA) ---
                                 if (state.categorySummaries.isNotEmpty()) {
-                                    Text(
-                                        "Struktura wydatków",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                        Text(
+                                            "Struktura wydatków",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+
                                     Spacer(modifier = Modifier.height(16.dp))
+
                                     Card(
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                        elevation = CardDefaults.cardElevation(2.dp)
+                                        elevation = CardDefaults.cardElevation(2.dp),
+                                        modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .height(180.dp)
-                                                .padding(16.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                                .padding(20.dp),
+                                            verticalAlignment = Alignment.Top
                                         ) {
+                                            // LEWA STRONA: WYKRES DONUT
                                             Box(
-                                                modifier = Modifier.weight(1f),
+                                                modifier = Modifier.weight(0.8f),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                PieChart(
+                                                DonutPieChart(
                                                     data = state.categorySummaries,
-                                                    modifier = Modifier.size(140.dp)
+                                                    modifier = Modifier.size(130.dp)
                                                 )
+                                                // Tekst w środku
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Text("Suma", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                                    Text("100%", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                                }
                                             }
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                state.categorySummaries.forEach { (cat, sum) ->
-                                                    Row(
-                                                        verticalAlignment = Alignment.CenterVertically,
-                                                        modifier = Modifier.padding(vertical = 4.dp)
-                                                    ) {
-                                                        Box(
-                                                            modifier = Modifier
-                                                                .size(12.dp)
-                                                                .clip(CircleShape)
-                                                                .background(
-                                                                    Brush.linearGradient(
-                                                                        getCategoryGradient(cat)
-                                                                    )
-                                                                )
-                                                        )
-                                                        Spacer(Modifier.width(8.dp))
-                                                        Column {
-                                                            val polishName = try {
-                                                                ExpenseCategory.fromString(cat).label
-                                                            } catch (e: Exception) {
-                                                                cat
-                                                            }
+
+                                            Spacer(modifier = Modifier.width(20.dp))
+
+                                            // PRAWA STRONA: LEGENDA Z PASKAMI
+                                            Column(modifier = Modifier.weight(1.2f)) {
+                                                val total = state.categorySummaries.values.sum()
+
+                                                // Sortujemy malejąco po kwocie
+                                                state.categorySummaries.toList().sortedByDescending { it.second }.forEach { (cat, sum) ->
+                                                    val percentage = if (total > 0) (sum / total).toFloat() else 0f
+                                                    val polishName = try {
+                                                        ExpenseCategory.fromString(cat).label
+                                                    } catch (e: Exception) { cat }
+                                                    val colorList = try { getCategoryGradient(cat) } catch(e: Exception) { listOf(Color.Gray, Color.LightGray) }
+                                                    val mainColor = colorList.firstOrNull() ?: Color.Gray
+
+                                                    Column(modifier = Modifier.padding(bottom = 12.dp)) {
+                                                        // Nazwa i Procent
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                        ) {
                                                             Text(
                                                                 text = polishName,
-                                                                style = MaterialTheme.typography.bodySmall,
-                                                                fontWeight = FontWeight.Bold
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                color = MaterialTheme.colorScheme.onSurface
                                                             )
                                                             Text(
-                                                                "${
-                                                                    String.format(
-                                                                        Locale.US,
-                                                                        "%.0f",
-                                                                        sum
-                                                                    )
-                                                                } ${state.trip?.mainCurrency}",
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                color = Color.Gray
+                                                                text = "${(percentage * 100).toInt()}%",
+                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = mainColor
                                                             )
                                                         }
+
+                                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                                        // Pasek postępu
+                                                        LinearProgressIndicator(
+                                                            progress = { percentage },
+                                                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
+                                                            color = mainColor,
+                                                            trackColor = mainColor.copy(alpha = 0.2f),
+                                                        )
+
+                                                        Spacer(modifier = Modifier.height(2.dp))
+
+                                                        // Kwota
+                                                        Text(
+                                                            text = "${String.format(Locale.US, "%.2f", sum)} ${state.trip?.mainCurrency}",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = Color.Gray
+                                                        )
                                                     }
                                                 }
                                             }
                                         }
                                     }
                                 } else {
+                                    // Empty state
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(100.dp),
+                                            .height(100.dp)
+                                            .background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(12.dp)),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            "Dodaj wydatki, aby zobaczyć wykres 📊",
-                                            color = Color.Gray
-                                        )
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(Icons.Default.PieChart, null, tint = Color.Gray)
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                "Dodaj wydatki, aby zobaczyć wykres 📊",
+                                                color = Color.Gray,
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(80.dp))
@@ -430,7 +497,21 @@ fun TripDetailsScreen(
             }
         }
 
-        // --- DIALOG POTWIERDZENIA USUNIĘCIA CZŁONKA ---
+        // --- DIALOGI ---
+
+        if (showEditDialog && state.trip != null) {
+            val trip = state.trip!!
+            EditTripDialog(
+                currentName = trip.name,
+                currentDate = trip.startDate,
+                onDismiss = { showEditDialog = false },
+                onConfirm = { newName, newDate ->
+                    viewModel.updateTripDetails(newName, newDate)
+                    showEditDialog = false
+                }
+            )
+        }
+
         if (memberToRemove != null) {
             AlertDialog(
                 onDismissRequest = { memberToRemove = null },
@@ -439,25 +520,16 @@ fun TripDetailsScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            memberToRemove?.let { user ->
-                                viewModel.removeMember(user.userId)
-                            }
+                            memberToRemove?.let { user -> viewModel.removeMember(user.userId) }
                             memberToRemove = null
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Usuń")
-                    }
+                    ) { Text("Usuń") }
                 },
-                dismissButton = {
-                    TextButton(onClick = { memberToRemove = null }) {
-                        Text("Anuluj")
-                    }
-                }
+                dismissButton = { TextButton(onClick = { memberToRemove = null }) { Text("Anuluj") } }
             )
         }
 
-        // --- POZOSTAŁE DIALOGI ---
         if (showExportDialog && state.trip != null) {
             val trip = state.trip!!
             AlertDialog(
@@ -532,6 +604,119 @@ fun TripDetailsScreen(
     }
 }
 
+// --- KOMPONENTY LOKALNE ---
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditTripDialog(
+    currentName: String,
+    currentDate: Long,
+    onDismiss: () -> Unit,
+    onConfirm: (String, Long) -> Unit
+) {
+    var name by remember { mutableStateOf(currentName) }
+
+    val datePickerState = rememberDatePickerState(initialSelectedDateMillis = currentDate)
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    val selectedDateMillis = datePickerState.selectedDateMillis ?: currentDate
+    val dateString =
+        SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(selectedDateMillis))
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edytuj wyjazd") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nazwa wyjazdu") },
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = dateString,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Data rozpoczęcia") },
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Wybierz datę")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                if (name.isNotBlank()) {
+                    onConfirm(name, selectedDateMillis)
+                }
+            }) {
+                Text("Zapisz")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Anuluj") }
+        }
+    )
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Anuluj") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+}
+
+@Composable
+fun DonutPieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
+    val total = data.values.sum()
+    val animatedProgress = remember { Animatable(0f) }
+
+    LaunchedEffect(data) {
+        animatedProgress.animateTo(1f, animationSpec = tween(durationMillis = 1000))
+    }
+
+    Canvas(modifier = modifier) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        // Mniejszy promień, żeby zmieścił się z grubym obrysem
+        val radius = size.minDimension / 2f - 20f
+        val strokeWidth = 40f // Grubość "pączka"
+
+        var startAngle = -90f
+
+        data.forEach { (category, amount) ->
+            val sweepAngle = (amount.toFloat() / total.toFloat()) * 360f * animatedProgress.value
+            val colorList = try { getCategoryGradient(category) } catch(e: Exception) { listOf(Color.Gray, Color.LightGray) }
+            val brush = Brush.sweepGradient(colorList) // Używamy sweep gradient dla efektu kołowego
+
+            // Rysujemy łuk z przerwami
+            if (sweepAngle > 0) {
+                drawArc(
+                    brush = Brush.linearGradient(colorList), // Lub linear gradient dla segmentu
+                    startAngle = startAngle,
+                    sweepAngle = sweepAngle - 2f, // -2f daje efekt przerwy między segmentami
+                    useCenter = false,
+                    topLeft = Offset(center.x - radius, center.y - radius),
+                    size = Size(radius * 2, radius * 2),
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round) // Zaokrąglone końce
+                )
+            }
+            startAngle += sweepAngle
+        }
+    }
+}
 
 @Composable
 fun SettleDebtDialog(
@@ -661,25 +846,6 @@ fun ModernDebtItem(fromName: String, toName: String, amount: Double, currency: S
                 Text(text = "${String.format(Locale.US, "%.2f", amount)} $currency", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                 Button(onClick = onSettleClick, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Spłać") }
             }
-        }
-    }
-}
-
-@Composable
-fun PieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
-    val total = data.values.sum()
-    val animatedProgress = remember { Animatable(0f) }
-    LaunchedEffect(data) { animatedProgress.animateTo(1f, animationSpec = tween(durationMillis = 800)) }
-    Canvas(modifier = modifier) {
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val radius = size.minDimension / 2f
-        val strokeWidth = 30.dp.toPx()
-        var startAngle = -90f
-        data.forEach { (category, amount) ->
-            val sweepAngle = (amount.toFloat() / total.toFloat()) * 360f * animatedProgress.value
-            val gradient = try { getCategoryGradient(category) } catch(e: Exception) { listOf(Color.Gray, Color.LightGray) }
-            drawArc(brush = Brush.linearGradient(gradient), startAngle = startAngle, sweepAngle = sweepAngle, useCenter = false, topLeft = Offset(center.x - radius + strokeWidth/2, center.y - radius + strokeWidth/2), size = Size((radius - strokeWidth/2) * 2, (radius - strokeWidth/2) * 2), style = Stroke(width = strokeWidth))
-            startAngle += sweepAngle
         }
     }
 }

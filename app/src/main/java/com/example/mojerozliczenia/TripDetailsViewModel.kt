@@ -1,7 +1,6 @@
 package com.example.mojerozliczenia
 
 import android.content.Context
-import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mojerozliczenia.packing.PackingDao
@@ -9,7 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import com.example.mojerozliczenia.ExportUtils
+import kotlin.math.absoluteValue
 
 class TripDetailsViewModel(
     private val dao: AppDao,
@@ -25,6 +24,7 @@ class TripDetailsViewModel(
     fun loadTripData(tripId: Long) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true)
+
             val tripData = dao.getTripById(tripId)
             _trip.value = tripData
 
@@ -32,10 +32,22 @@ class TripDetailsViewModel(
             val transactions = dao.getTransactionsByTrip(tripId)
             val splits = dao.getSplitsForTrip(tripId)
 
-            // Obliczenia finansowe
-            val totalSpent = transactions.filter { !it.isRepayment }.sumOf { it.amount * it.exchangeRate }
+            val expenses = transactions.filter { !it.isRepayment }
+            val totalSpent = expenses.sumOf { it.amount * it.exchangeRate }
 
-            val debts =  BalanceUtils.calculateDebts(transactions, splits)
+            val categoryStats = expenses
+                .groupBy { it.category }
+                .mapValues { entry ->
+                    entry.value.sumOf { it.amount * it.exchangeRate }
+                }
+
+            val currencyStats = expenses
+                .groupBy { it.currency }
+                .mapValues { entry ->
+                    entry.value.sumOf { it.amount }
+                }
+
+            val debts = calculateDebts(members, transactions, splits)
 
             _uiState.value = TripDetailsUiState(
                 trip = tripData,
@@ -43,12 +55,90 @@ class TripDetailsViewModel(
                 transactions = transactions,
                 totalSpent = totalSpent,
                 debts = debts,
-                isLoading = false
+                isLoading = false,
+                categorySummaries = categoryStats,
+                currencySummaries = currencyStats
             )
         }
     }
 
-    // --- FUNKCJA EKSPORTU ---
+    // --- NOWA FUNKCJA: EDYCJA WYJAZDU ---
+    fun updateTripDetails(newName: String, newDate: Long) {
+        viewModelScope.launch {
+            _trip.value?.let { currentTrip ->
+                // Tworzymy kopię obiektu z nowymi danymi
+                val updatedTrip = currentTrip.copy(
+                    name = newName,
+                    startDate = newDate
+                )
+                // Aktualizujemy w bazie
+                dao.updateTrip(updatedTrip)
+
+                // Odświeżamy widok
+                loadTripData(currentTrip.tripId)
+            }
+        }
+    }
+    // ------------------------------------
+
+    private fun calculateDebts(
+        members: List<User>,
+        transactions: List<Transaction>,
+        splits: List<TransactionSplit>
+    ): List<Debt> {
+        val balances = mutableMapOf<Long, Double>()
+        members.forEach { balances[it.userId] = 0.0 }
+
+        for (tx in transactions) {
+            val txSplits = splits.filter { it.transactionId == tx.transactionId }
+            if (txSplits.isEmpty()) continue
+
+            val amountInBase = tx.amount * tx.exchangeRate
+
+            balances[tx.payerId] = (balances[tx.payerId] ?: 0.0) + amountInBase
+
+            val totalWeight = txSplits.sumOf { it.weight }
+            if (totalWeight == 0.0) continue
+
+            for (split in txSplits) {
+                val share = amountInBase * (split.weight / totalWeight)
+                balances[split.beneficiaryId] = (balances[split.beneficiaryId] ?: 0.0) - share
+            }
+        }
+
+        val debtors = balances.filter { it.value < -0.01 }.keys.toMutableList()
+        val creditors = balances.filter { it.value > 0.01 }.keys.toMutableList()
+        val debtsList = mutableListOf<Debt>()
+
+        debtors.sortBy { balances[it] }
+        creditors.sortByDescending { balances[it] }
+
+        var i = 0
+        var j = 0
+
+        while (i < debtors.size && j < creditors.size) {
+            val debtorId = debtors[i]
+            val creditorId = creditors[j]
+
+            val debtAmount = (balances[debtorId] ?: 0.0).absoluteValue
+            val creditAmount = balances[creditorId] ?: 0.0
+
+            val settledAmount = minOf(debtAmount, creditAmount)
+
+            if (debtorId != creditorId && settledAmount > 0.01) {
+                debtsList.add(Debt(debtorId, creditorId, settledAmount))
+            }
+
+            balances[debtorId] = (balances[debtorId] ?: 0.0) + settledAmount
+            balances[creditorId] = (balances[creditorId] ?: 0.0) - settledAmount
+
+            if ((balances[debtorId] ?: 0.0).absoluteValue < 0.01) i++
+            if ((balances[creditorId] ?: 0.0) < 0.01) j++
+        }
+
+        return debtsList
+    }
+
     fun exportTripToJson(
         context: Context,
         trip: Trip,
@@ -59,7 +149,6 @@ class TripDetailsViewModel(
             val members = dao.getTripMembers(trip.tripId)
             val transactions = dao.getTransactionsByTrip(trip.tripId)
 
-            // Przygotowanie transakcji
             val transactionDataList = transactions.map { tx ->
                 val splits = dao.getSplitsForTrip(trip.tripId).filter { it.transactionId == tx.transactionId }
                 val payer = members.find { it.userId == tx.payerId }?.username ?: "Unknown"
@@ -79,10 +168,8 @@ class TripDetailsViewModel(
                 )
             }
 
-            // Przygotowanie listy pakowania
             var packingListNames: List<String>? = null
             if (includePacking) {
-                // Używamy packingDao wstrzykniętego w konstruktorze
                 val items = packingDao.getItemsForTripSync(trip.tripId)
                 packingListNames = items.map { it.name }
             }
@@ -95,48 +182,15 @@ class TripDetailsViewModel(
                 packingList = packingListNames
             )
 
-            // Generujemy JSON
             val json = ExportUtils.tripToJson(exportData)
-
-            // Przekazujemy go z powrotem do widoku
             onJsonReady(json)
         }
     }
 
-    fun removeMember(userId: Long) {
-        viewModelScope.launch {
-            _trip.value?.let { trip ->
-                dao.removeMemberFromTrip(trip.tripId, userId)
-                loadTripData(trip.tripId)
-            }
-        }
-    }
-
     fun generateShareReport(): String {
-        val state = _uiState.value
-        val tripName = state.trip?.name ?: "Wyjazd"
-        val debts = state.debts
-        val currency = state.trip?.mainCurrency ?: "PLN"
-
-        val sb = StringBuilder()
-        sb.append("📊 Rozliczenie wyjazdu: $tripName\n")
-        sb.append("-----------------------------\n")
-
-        if (debts.isEmpty()) {
-            sb.append("✅ Wszystko rozliczone! Nikt nikomu nic nie wisi.\n")
-        } else {
-            sb.append("Do oddania:\n")
-            debts.forEach { debt ->
-                val from = getMemberName(debt.fromUserId)
-                val to = getMemberName(debt.toUserId)
-                sb.append("🔴 $from ➡️ $to: ${debt.amount} $currency\n")
-            }
-        }
-
-        sb.append("-----------------------------\n")
-        sb.append("Wygenerowano w aplikacji MojeRozliczenia 📱")
-
-        return sb.toString()
+        val tripName = _trip.value?.name ?: "Wyjazd"
+        val total = String.format("%.2f", _uiState.value.totalSpent)
+        return "Raport z wyjazdu '$tripName'.\nŁącznie wydano: $total PLN.\n\nSprawdź szczegóły w aplikacji Moje Rozliczenia!"
     }
 
     fun deleteTransaction(transaction: Transaction) {
@@ -189,7 +243,6 @@ class TripDetailsViewModel(
         }
     }
 
-    // Placeholdery dla NBP
     fun fetchSettlementRateFromNbp(currency: String) {
         if (currency.equals("PLN", ignoreCase = true) || currency == _uiState.value.trip?.mainCurrency) return
 
@@ -210,9 +263,16 @@ class TripDetailsViewModel(
         _uiState.value = _uiState.value.copy(fetchedSettlementRate = null)
     }
 
+    fun removeMember(userId: Long) {
+        viewModelScope.launch {
+            _trip.value?.let { trip ->
+                dao.removeMemberFromTrip(trip.tripId, userId)
+                loadTripData(trip.tripId)
+            }
+        }
+    }
 }
 
-// Struktury danych dla UI
 data class TripDetailsUiState(
     val trip: Trip? = null,
     val members: List<User> = emptyList(),
