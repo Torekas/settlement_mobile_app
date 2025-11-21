@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.util.Locale
+import kotlin.math.abs
 
 fun getCategoryIcon(categoryName: String): ImageVector {
     return try { ExpenseCategory.valueOf(categoryName).icon } catch (e: Exception) { Icons.Default.MiscellaneousServices }
@@ -152,7 +153,7 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
             }
         }
     ) { padding ->
-        if (state.isLoading) {
+        if (state.isLoading && !showSettleDialog) { // Nie pokazuj loadera jeśli dialog otwarty (on ma swój)
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
             AnimatedVisibility(
@@ -303,16 +304,20 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                 debt = selectedDebt!!,
                 fromName = viewModel.getMemberName(selectedDebt!!.fromUserId),
                 toName = viewModel.getMemberName(selectedDebt!!.toUserId),
-                currency = state.trip?.mainCurrency ?: "PLN",
-                onDismiss = { showSettleDialog = false },
-                onConfirm = { amount ->
+                mainCurrency = state.trip?.mainCurrency ?: "PLN",
+                onDismiss = { showSettleDialog = false; viewModel.clearSettlementRate() },
+                onFetchRate = { curr -> viewModel.fetchSettlementRateFromNbp(curr) },
+                fetchedRate = state.fetchedSettlementRate,
+                onConfirm = { amount, currency, rate ->
                     viewModel.settleDebt(
                         selectedDebt!!.fromUserId,
                         selectedDebt!!.toUserId,
                         amount,
-                        state.trip?.mainCurrency ?: "PLN"
+                        currency,
+                        rate
                     )
                     showSettleDialog = false
+                    viewModel.clearSettlementRate()
                 }
             )
         }
@@ -321,6 +326,130 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
             AddMemberDialog(onDismiss = { viewModel.setAddMemberDialogVisibility(false) }, onConfirm = { viewModel.addMember(it) })
         }
     }
+}
+
+// --- KOMPONENTY UI ---
+
+@Composable
+fun SettleDebtDialog(
+    debt: Debt,
+    fromName: String,
+    toName: String,
+    mainCurrency: String,
+    onDismiss: () -> Unit,
+    onFetchRate: (String) -> Unit,
+    fetchedRate: Double?,
+    onConfirm: (Double, String, Double) -> Unit
+) {
+    var amountString by remember { mutableStateOf(debt.amount.toString()) }
+    var currency by remember { mutableStateOf(mainCurrency) }
+    var rateString by remember { mutableStateOf("1.0") }
+
+    // Jeśli zmieni się fetchedRate (z NBP), aktualizujemy pole kursu
+    LaunchedEffect(fetchedRate) {
+        if (fetchedRate != null) {
+            rateString = fetchedRate.toString()
+        }
+    }
+
+    val inputAmount = amountString.toDoubleOrNull() ?: 0.0
+    val inputRate = rateString.toDoubleOrNull() ?: 1.0
+
+    // Przeliczamy spłatę na walutę główną wyjazdu
+    val amountInMainCurrency = inputAmount * inputRate
+
+    val difference = amountInMainCurrency - debt.amount
+    val showRateField = currency.uppercase() != mainCurrency
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Spłata długu") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text("$fromName oddaje pieniądze dla $toName", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(16.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = amountString,
+                        onValueChange = { amountString = it },
+                        label = { Text("Kwota") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedTextField(
+                        value = currency,
+                        onValueChange = { currency = it.uppercase() },
+                        label = { Text("Waluta") },
+                        modifier = Modifier.width(90.dp)
+                    )
+                }
+
+                // Sekcja kursu (tylko jeśli waluta inna)
+                if (showRateField) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = rateString,
+                            onValueChange = { rateString = it },
+                            label = { Text("Kurs") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        // Przycisk NBP w dialogu
+                        FilledIconToggleButton(
+                            checked = false,
+                            onCheckedChange = { onFetchRate(currency) },
+                            modifier = Modifier.size(56.dp),
+                            colors = IconButtonDefaults.filledIconToggleButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
+                        ) {
+                            Icon(Icons.Default.AutoMode, contentDescription = "Pobierz kurs", modifier = Modifier.size(24.dp))
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // Podsumowanie nadpłaty/niedopłaty
+                if (inputAmount > 0) {
+                    // Pokazujemy ile to jest w walucie głównej
+                    if (showRateField) {
+                        Text(
+                            "Wartość w $mainCurrency: ${String.format(Locale.US, "%.2f", amountInMainCurrency)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
+
+                    if (difference > 0.01) {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("⚠️ Nadpłata!", color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
+                                Text("$toName będzie winien $fromName: ${String.format(Locale.US, "%.2f", difference)} $mainCurrency", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    } else if (difference < -0.01) {
+                        Text("Pozostanie do spłaty: ${String.format(Locale.US, "%.2f", abs(difference))} $mainCurrency", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Text("Spłata całkowita ✅", color = Color(0xFF388E3C), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (inputAmount > 0) {
+                        onConfirm(inputAmount, currency, inputRate)
+                    }
+                }
+            ) { Text("Zatwierdź") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
+    )
 }
 
 @Composable
@@ -379,71 +508,11 @@ fun PieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun SettleDebtDialog(
-    debt: Debt,
-    fromName: String,
-    toName: String,
-    currency: String,
-    onDismiss: () -> Unit,
-    onConfirm: (Double) -> Unit
-) {
-    var amountString by remember { mutableStateOf(debt.amount.toString()) }
-    val inputAmount = amountString.toDoubleOrNull() ?: 0.0
-    val difference = inputAmount - debt.amount
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Spłata długu") },
-        text = {
-            Column {
-                Text("$fromName oddaje pieniądze dla $toName", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = amountString,
-                    onValueChange = { amountString = it },
-                    label = { Text("Kwota ($currency)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(8.dp))
-
-                if (inputAmount > 0) {
-                    if (difference > 0.01) {
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("⚠️ Nadpłata!", color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
-                                Text("$toName będzie winien $fromName: ${String.format(Locale.US, "%.2f", difference)} $currency", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    } else if (difference < -0.01) {
-                        Text("Pozostanie do spłaty: ${String.format(Locale.US, "%.2f", kotlin.math.abs(difference))} $currency", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                    } else {
-                        Text("Spłata całkowita ✅", color = Color(0xFF388E3C), fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (inputAmount > 0) {
-                        onConfirm(inputAmount)
-                    }
-                }
-            ) { Text("Zatwierdź") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
-    )
-}
-
-@Composable
 fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () -> Unit, mainCurrency: String) {
     val context = LocalContext.current
     val isRepayment = transaction.isRepayment
     val icon = if (isRepayment) Icons.Default.CurrencyExchange else getCategoryIcon(transaction.category)
     val gradientColors = if (isRepayment) listOf(Color(0xFF66BB6A), Color(0xFF2E7D32)) else getCategoryGradient(transaction.category)
-
-    // Pobieranie logo (Opcja 2 - loga sklepów)
     val logoUrl = if (!isRepayment) LogoUtils.getLogoUrl(transaction.description) else null
 
     Card(
@@ -453,18 +522,12 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
     ) {
         Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Brush.linearGradient(gradientColors)),
+                modifier = Modifier.size(48.dp).clip(CircleShape).background(Brush.linearGradient(gradientColors)),
                 contentAlignment = Alignment.Center
             ) {
                 if (logoUrl != null) {
                     AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(logoUrl)
-                            .crossfade(true)
-                            .build(),
+                        model = ImageRequest.Builder(context).data(logoUrl).crossfade(true).build(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         error = rememberVectorPainter(icon),
@@ -474,14 +537,11 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
                     Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
                 }
             }
-
             Spacer(modifier = Modifier.width(16.dp))
-
             Column(modifier = Modifier.weight(1f)) {
                 Text(transaction.description, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(if(isRepayment) "$payerName spłaca" else "$payerName (${transaction.category})", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
             }
-
             Column(horizontalAlignment = Alignment.End) {
                 Text("${String.format(Locale.US, "%.2f", transaction.amount)} ${transaction.currency}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                 if (transaction.currency != mainCurrency) {
@@ -489,7 +549,6 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
                     Text("≈ ${String.format(Locale.US, "%.2f", converted)} $mainCurrency", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
             }
-
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Usuń", tint = Color.Gray.copy(alpha = 0.5f)) }
         }
     }
