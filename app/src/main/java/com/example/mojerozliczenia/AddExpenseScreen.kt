@@ -34,15 +34,6 @@ import androidx.compose.ui.unit.dp
 import java.util.Locale
 import java.util.regex.Pattern
 
-enum class ExpenseCategory(val label: String, val icon: ImageVector) {
-    FOOD("Jedzenie", Icons.Default.Fastfood),
-    SHOPPING("Zakupy", Icons.Default.LocalGroceryStore),
-    TRANSPORT("Transport", Icons.Default.DirectionsBus),
-    ACCOMMODATION("Nocleg", Icons.Default.Bed),
-    ENTERTAINMENT("Rozrywka", Icons.Default.Movie),
-    OTHER("Inne", Icons.Default.MiscellaneousServices)
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseScreen(tripId: Long, viewModel: AddExpenseViewModel, onBack: () -> Unit) {
@@ -54,7 +45,6 @@ fun AddExpenseScreen(tripId: Long, viewModel: AddExpenseViewModel, onBack: () ->
     var amount by remember { mutableStateOf("") }
     var currency by remember { mutableStateOf("PLN") }
 
-    // Kategoria teraz pochodzi z ViewModelu (dla automatyzacji), ale mapujemy ją na Enum
     val selectedCategory = try {
         ExpenseCategory.valueOf(state.selectedCategory)
     } catch (e: Exception) {

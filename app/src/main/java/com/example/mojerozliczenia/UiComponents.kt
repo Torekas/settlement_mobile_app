@@ -60,15 +60,3 @@ fun GradientCard(
         }
     }
 }
-
-// 3. POMOCNICZE KOLORY
-fun getCategoryGradient(categoryName: String): List<Color> {
-    return when (categoryName) {
-        "FOOD" -> listOf(Color(0xFFFFCC80), Color(0xFFFB8C00))
-        "SHOPPING" -> listOf(Color(0xFF81D4FA), Color(0xFF0288D1))
-        "TRANSPORT" -> listOf(Color(0xFFEF9A9A), Color(0xFFD32F2F))
-        "ACCOMMODATION" -> listOf(Color(0xFFB39DDB), Color(0xFF512DA8))
-        "ENTERTAINMENT" -> listOf(Color(0xFF80CBC4), Color(0xFF00796B))
-        else -> listOf(Color(0xFFB0BEC5), Color(0xFF455A64))
-    }
-}

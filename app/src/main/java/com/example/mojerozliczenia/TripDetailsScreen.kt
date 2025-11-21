@@ -11,18 +11,19 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,9 +38,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -47,80 +48,72 @@ import coil.request.ImageRequest
 import java.util.Locale
 import kotlin.math.abs
 
-fun getCategoryIcon(categoryName: String): ImageVector {
-    return try { ExpenseCategory.valueOf(categoryName).icon } catch (e: Exception) { Icons.Default.MiscellaneousServices }
-}
-
-fun getCategoryColor(categoryName: String): Color {
-    return when (categoryName) {
-        "FOOD" -> Color(0xFFFFB74D)
-        "SHOPPING" -> Color(0xFF64B5F6)
-        "TRANSPORT" -> Color(0xFFE57373)
-        "ACCOMMODATION" -> Color(0xFF9575CD)
-        "ENTERTAINMENT" -> Color(0xFF4DB6AC)
-        else -> Color(0xFF90A4AE)
-    }
-}
-
-fun getNameColor(name: String): Color {
-    val hash = name.hashCode()
-    val colors = listOf(
-        Color(0xFFE57373), Color(0xFFF06292), Color(0xFFBA68C8),
-        Color(0xFF9575CD), Color(0xFF7986CB), Color(0xFF64B5F6),
-        Color(0xFF4FC3F7), Color(0xFF4DD0E1), Color(0xFF4DB6AC),
-        Color(0xFF81C784), Color(0xFFAED581), Color(0xFFFFD54F),
-        Color(0xFFFFB74D), Color(0xFFFF8A65), Color(0xFFA1887F)
-    )
-    return colors[Math.abs(hash) % colors.size]
-}
+// --- GŁÓWNY EKRAN ---
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () -> Unit, onAddExpenseClick: () -> Unit) {
+fun TripDetailsScreen(
+    tripId: Long,
+    viewModel: TripDetailsViewModel,
+    onBack: () -> Unit,
+    onPackingClick: () -> Unit,
+    onAddExpenseClick: () -> Unit
+) {
     val context = LocalContext.current
     LaunchedEffect(tripId) { viewModel.loadTripData(tripId) }
 
     val state by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     var showSettleDialog by remember { mutableStateOf(false) }
+    var showExportDialog by remember { mutableStateOf(false) }
     var selectedDebt by remember { mutableStateOf<Debt?>(null) }
+
+    // Stan do usuwania członka ekipy
+    var memberToRemove by remember { mutableStateOf<User?>(null) }
 
     var isVisible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { isVisible = true }
 
-    var jsonToSave by remember { mutableStateOf("") }
+    val tabs = listOf("Pulpit", "Historia", "Rozliczenie")
 
+    var jsonContentToSave by remember { mutableStateOf("") }
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
-        if (uri != null && jsonToSave.isNotEmpty()) {
+        uri?.let {
             try {
-                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                    outputStream.write(jsonToSave.toByteArray())
+                context.contentResolver.openOutputStream(it)?.use { stream ->
+                    stream.write(jsonContentToSave.toByteArray())
                 }
-                Toast.makeText(context, "Zapisano plik pomyślnie!", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Zapisano pomyślnie!", Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
                 Toast.makeText(context, "Błąd zapisu: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    val tabs = listOf("Pulpit", "Historia", "Rozliczenie")
-
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(
                     title = { Text(state.trip?.name ?: "Ładowanie...") },
-                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wróć") } },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wróć")
+                        }
+                    },
                     actions = {
-                        IconButton(onClick = {
-                            viewModel.prepareExport { json ->
-                                jsonToSave = json
-                                val filename = "${state.trip?.name?.replace(" ", "_") ?: "wyjazd"}.json"
-                                exportLauncher.launch(filename)
-                            }
-                        }) { Icon(Icons.Default.Save, contentDescription = "Zapisz do pliku") }
+                        IconButton(onClick = { showExportDialog = true }) {
+                            Icon(Icons.Default.Save, contentDescription = "Zapisz do pliku")
+                        }
+
+                        IconButton(onClick = onPackingClick) {
+                            Icon(
+                                imageVector = Icons.Filled.Luggage,
+                                contentDescription = "Lista Pakowania",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
 
                         IconButton(onClick = {
                             val report = viewModel.generateShareReport()
@@ -136,7 +129,11 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                 )
                 TabRow(selectedTabIndex = selectedTab) {
                     tabs.forEachIndexed { index, title ->
-                        Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(title) })
+                        Tab(
+                            selected = selectedTab == index,
+                            onClick = { selectedTab = index },
+                            text = { Text(title) }
+                        )
                     }
                 }
             }
@@ -153,23 +150,39 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
             }
         }
     ) { padding ->
-        if (state.isLoading && !showSettleDialog) { // Nie pokazuj loadera jeśli dialog otwarty (on ma swój)
+        if (state.isLoading && !showSettleDialog) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
             AnimatedVisibility(
                 visible = isVisible,
                 enter = fadeIn() + slideInVertically(initialOffsetY = { 50 })
             ) {
-                Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .padding(padding)
+                        .padding(16.dp)
+                        .fillMaxSize()
+                ) {
                     when (selectedTab) {
-                        0 -> {
+                        0 -> { // --- PULPIT ---
                             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                                 GradientCard(
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 16.dp),
                                     colors = listOf(Color(0xFF6200EA), Color(0xFFB388FF))
                                 ) {
-                                    Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("Łączne wydatki", style = MaterialTheme.typography.labelLarge, color = Color.White.copy(alpha = 0.8f))
+                                    Column(
+                                        modifier = Modifier
+                                            .padding(24.dp)
+                                            .fillMaxWidth(),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            "Łączne wydatki",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = Color.White.copy(alpha = 0.8f)
+                                        )
                                         Spacer(modifier = Modifier.height(8.dp))
                                         AnimatedAmountText(
                                             targetAmount = state.totalSpent,
@@ -182,7 +195,9 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
 
                                 if (state.currencySummaries.isNotEmpty()) {
                                     LazyRow(
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 24.dp),
                                         horizontalArrangement = Arrangement.Center
                                     ) {
                                         items(state.currencySummaries.toList()) { (curr, amount) ->
@@ -201,30 +216,115 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                                     }
                                 }
 
-                                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Ekipa", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                    TextButton(onClick = { viewModel.setAddMemberDialogVisibility(true) }) { Icon(Icons.Default.PersonAdd, null); Text("Dodaj") }
-                                }
-                                LazyRow(modifier = Modifier.padding(bottom = 24.dp)) {
-                                    items(state.members) { user ->
-                                        UserAvatar(name = user.username, modifier = Modifier.padding(end = 8.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Ekipa",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    TextButton(onClick = { viewModel.setAddMemberDialogVisibility(true) }) {
+                                        Icon(Icons.Default.PersonAdd, null); Text("Dodaj")
                                     }
                                 }
 
+                                // --- LISTA EKIPY Z USUWANIEM ---
+                                LazyRow(modifier = Modifier.padding(bottom = 24.dp)) {
+                                    items(state.members) { user ->
+                                        Box(modifier = Modifier.padding(end = 12.dp)) {
+                                            UserAvatar(
+                                                name = user.username,
+                                                modifier = Modifier.clickable {
+                                                    // Kliknięcie w awatar ustawia osobę do usunięcia i otwiera dialog
+                                                    memberToRemove = user
+                                                }
+                                            )
+
+                                            // Mały minusik przy awatarze (opcjonalnie, dla jasności)
+                                            Icon(
+                                                imageVector = Icons.Default.RemoveCircle,
+                                                contentDescription = "Usuń",
+                                                tint = Color.Red.copy(alpha = 0.7f),
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .align(Alignment.TopEnd)
+                                            )
+                                        }
+                                    }
+                                }
+                                // -------------------------------
+
                                 if (state.categorySummaries.isNotEmpty()) {
-                                    Text("Struktura wydatków", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "Struktura wydatków",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                     Spacer(modifier = Modifier.height(16.dp))
-                                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(2.dp)) {
-                                        Row(modifier = Modifier.fillMaxWidth().height(180.dp).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { PieChart(data = state.categorySummaries, modifier = Modifier.size(140.dp)) }
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                        elevation = CardDefaults.cardElevation(2.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(180.dp)
+                                                .padding(16.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier.weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                PieChart(
+                                                    data = state.categorySummaries,
+                                                    modifier = Modifier.size(140.dp)
+                                                )
+                                            }
                                             Column(modifier = Modifier.weight(1f)) {
                                                 state.categorySummaries.forEach { (cat, sum) ->
-                                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                                                        Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(Brush.linearGradient(getCategoryGradient(cat))))
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(vertical = 4.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(12.dp)
+                                                                .clip(CircleShape)
+                                                                .background(
+                                                                    Brush.linearGradient(
+                                                                        getCategoryGradient(cat)
+                                                                    )
+                                                                )
+                                                        )
                                                         Spacer(Modifier.width(8.dp))
                                                         Column {
-                                                            Text(cat, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                                            Text("${String.format(Locale.US, "%.0f", sum)} ${state.trip?.mainCurrency}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                                            val polishName = try {
+                                                                ExpenseCategory.fromString(cat).label
+                                                            } catch (e: Exception) {
+                                                                cat
+                                                            }
+                                                            Text(
+                                                                text = polishName,
+                                                                style = MaterialTheme.typography.bodySmall,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                            Text(
+                                                                "${
+                                                                    String.format(
+                                                                        Locale.US,
+                                                                        "%.0f",
+                                                                        sum
+                                                                    )
+                                                                } ${state.trip?.mainCurrency}",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = Color.Gray
+                                                            )
                                                         }
                                                     }
                                                 }
@@ -232,18 +332,39 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                                         }
                                     }
                                 } else {
-                                    Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) { Text("Dodaj wydatki, aby zobaczyć wykres 📊", color = Color.Gray) }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(100.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "Dodaj wydatki, aby zobaczyć wykres 📊",
+                                            color = Color.Gray
+                                        )
+                                    }
                                 }
                                 Spacer(modifier = Modifier.height(80.dp))
                             }
                         }
                         1 -> { // --- HISTORIA ---
                             if (state.transactions.isEmpty()) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Brak transakcji.", color = Color.Gray) }
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) { Text("Brak transakcji.", color = Color.Gray) }
                             } else {
-                                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(bottom = 80.dp)
+                                ) {
                                     items(state.transactions) { transaction ->
-                                        TransactionItem(transaction, viewModel.getMemberName(transaction.payerId), { viewModel.deleteTransaction(transaction) }, state.trip?.mainCurrency ?: "PLN")
+                                        TransactionItem(
+                                            transaction,
+                                            viewModel.getMemberName(transaction.payerId),
+                                            { viewModel.deleteTransaction(transaction) },
+                                            state.trip?.mainCurrency ?: "PLN"
+                                        )
                                     }
                                 }
                             }
@@ -251,15 +372,25 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                         2 -> { // --- ROZLICZENIE ---
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
                                 item {
-                                    Text("Plan spłat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                    Text("Kto komu ile wisi", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                                    Text(
+                                        "Plan spłat",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Kto komu ile wisi",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.Gray
+                                    )
                                     Spacer(modifier = Modifier.height(16.dp))
                                 }
 
                                 if (state.debts.isEmpty()) {
                                     item {
                                         Column(
-                                            modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 64.dp),
                                             horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                             Icon(
@@ -299,6 +430,77 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
             }
         }
 
+        // --- DIALOG POTWIERDZENIA USUNIĘCIA CZŁONKA ---
+        if (memberToRemove != null) {
+            AlertDialog(
+                onDismissRequest = { memberToRemove = null },
+                title = { Text("Usunąć uczestnika?") },
+                text = { Text("Czy na pewno chcesz usunąć ${memberToRemove?.username} z wyjazdu?") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            memberToRemove?.let { user ->
+                                viewModel.removeMember(user.userId)
+                            }
+                            memberToRemove = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Usuń")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { memberToRemove = null }) {
+                        Text("Anuluj")
+                    }
+                }
+            )
+        }
+
+        // --- POZOSTAŁE DIALOGI ---
+        if (showExportDialog && state.trip != null) {
+            val trip = state.trip!!
+            AlertDialog(
+                onDismissRequest = { showExportDialog = false },
+                title = { Text("Eksport wyjazdu") },
+                text = {
+                    Text("Czy chcesz dołączyć do pliku listę rzeczy do spakowania?")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.exportTripToJson(context, trip, includePacking = true) { json ->
+                                jsonContentToSave = json
+                                val filename = "trip_${trip.name.replace(" ", "_")}.json"
+                                exportLauncher.launch(filename)
+                            }
+                            showExportDialog = false
+                        }
+                    ) {
+                        Text("Tak, z listą")
+                    }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton(onClick = { showExportDialog = false }) { Text("Anuluj") }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                viewModel.exportTripToJson(context, trip, includePacking = false) { json ->
+                                    jsonContentToSave = json
+                                    val filename = "trip_${trip.name.replace(" ", "_")}.json"
+                                    exportLauncher.launch(filename)
+                                }
+                                showExportDialog = false
+                            }
+                        ) {
+                            Text("Tylko finanse")
+                        }
+                    }
+                }
+            )
+        }
+
         if (showSettleDialog && selectedDebt != null) {
             SettleDebtDialog(
                 debt = selectedDebt!!,
@@ -323,12 +525,13 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
         }
 
         if (state.showAddMemberDialog) {
-            AddMemberDialog(onDismiss = { viewModel.setAddMemberDialogVisibility(false) }, onConfirm = { viewModel.addMember(it) })
+            AddMemberDialog(
+                onDismiss = { viewModel.setAddMemberDialogVisibility(false) },
+                onConfirm = { viewModel.addMember(it) })
         }
     }
 }
 
-// --- KOMPONENTY UI ---
 
 @Composable
 fun SettleDebtDialog(
@@ -345,19 +548,13 @@ fun SettleDebtDialog(
     var currency by remember { mutableStateOf(mainCurrency) }
     var rateString by remember { mutableStateOf("1.0") }
 
-    // Jeśli zmieni się fetchedRate (z NBP), aktualizujemy pole kursu
     LaunchedEffect(fetchedRate) {
-        if (fetchedRate != null) {
-            rateString = fetchedRate.toString()
-        }
+        if (fetchedRate != null) rateString = fetchedRate.toString()
     }
 
     val inputAmount = amountString.toDoubleOrNull() ?: 0.0
     val inputRate = rateString.toDoubleOrNull() ?: 1.0
-
-    // Przeliczamy spłatę na walutę główną wyjazdu
     val amountInMainCurrency = inputAmount * inputRate
-
     val difference = amountInMainCurrency - debt.amount
     val showRateField = currency.uppercase() != mainCurrency
 
@@ -368,7 +565,6 @@ fun SettleDebtDialog(
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 Text("$fromName oddaje pieniądze dla $toName", style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(16.dp))
-
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
                         value = amountString,
@@ -385,8 +581,6 @@ fun SettleDebtDialog(
                         modifier = Modifier.width(90.dp)
                     )
                 }
-
-                // Sekcja kursu (tylko jeśli waluta inna)
                 if (showRateField) {
                     Spacer(Modifier.height(8.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -398,32 +592,20 @@ fun SettleDebtDialog(
                             modifier = Modifier.weight(1f)
                         )
                         Spacer(Modifier.width(8.dp))
-                        // Przycisk NBP w dialogu
                         FilledIconToggleButton(
                             checked = false,
                             onCheckedChange = { onFetchRate(currency) },
                             modifier = Modifier.size(56.dp),
                             colors = IconButtonDefaults.filledIconToggleButtonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary)
-                        ) {
-                            Icon(Icons.Default.AutoMode, contentDescription = "Pobierz kurs", modifier = Modifier.size(24.dp))
-                        }
+                        ) { Icon(Icons.Default.AutoMode, contentDescription = "Pobierz kurs", modifier = Modifier.size(24.dp)) }
                     }
                 }
-
                 Spacer(Modifier.height(16.dp))
-
-                // Podsumowanie nadpłaty/niedopłaty
                 if (inputAmount > 0) {
-                    // Pokazujemy ile to jest w walucie głównej
                     if (showRateField) {
-                        Text(
-                            "Wartość w $mainCurrency: ${String.format(Locale.US, "%.2f", amountInMainCurrency)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.Gray
-                        )
+                        Text("Wartość w $mainCurrency: ${String.format(Locale.US, "%.2f", amountInMainCurrency)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         Spacer(Modifier.height(4.dp))
                     }
-
                     if (difference > 0.01) {
                         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                             Column(modifier = Modifier.padding(8.dp)) {
@@ -440,13 +622,7 @@ fun SettleDebtDialog(
             }
         },
         confirmButton = {
-            Button(
-                onClick = {
-                    if (inputAmount > 0) {
-                        onConfirm(inputAmount, currency, inputRate)
-                    }
-                }
-            ) { Text("Zatwierdź") }
+            Button(onClick = { if (inputAmount > 0) onConfirm(inputAmount, currency, inputRate) }) { Text("Zatwierdź") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
     )
@@ -480,7 +656,7 @@ fun ModernDebtItem(fromName: String, toName: String, amount: Double, currency: S
                 Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("oddaje", style = MaterialTheme.typography.labelSmall, color = Color.Gray); Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp)) }
                 Row(verticalAlignment = Alignment.CenterVertically) { UserAvatar(name = toName) }
             }
-            Divider(modifier = Modifier.padding(vertical = 12.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(text = "${String.format(Locale.US, "%.2f", amount)} $currency", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
                 Button(onClick = onSettleClick, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Spłać") }
@@ -501,7 +677,8 @@ fun PieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
         var startAngle = -90f
         data.forEach { (category, amount) ->
             val sweepAngle = (amount.toFloat() / total.toFloat()) * 360f * animatedProgress.value
-            drawArc(brush = Brush.linearGradient(getCategoryGradient(category)), startAngle = startAngle, sweepAngle = sweepAngle, useCenter = false, topLeft = Offset(center.x - radius + strokeWidth/2, center.y - radius + strokeWidth/2), size = Size((radius - strokeWidth/2) * 2, (radius - strokeWidth/2) * 2), style = Stroke(width = strokeWidth))
+            val gradient = try { getCategoryGradient(category) } catch(e: Exception) { listOf(Color.Gray, Color.LightGray) }
+            drawArc(brush = Brush.linearGradient(gradient), startAngle = startAngle, sweepAngle = sweepAngle, useCenter = false, topLeft = Offset(center.x - radius + strokeWidth/2, center.y - radius + strokeWidth/2), size = Size((radius - strokeWidth/2) * 2, (radius - strokeWidth/2) * 2), style = Stroke(width = strokeWidth))
             startAngle += sweepAngle
         }
     }
@@ -511,9 +688,9 @@ fun PieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
 fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () -> Unit, mainCurrency: String) {
     val context = LocalContext.current
     val isRepayment = transaction.isRepayment
-    val icon = if (isRepayment) Icons.Default.CurrencyExchange else getCategoryIcon(transaction.category)
-    val gradientColors = if (isRepayment) listOf(Color(0xFF66BB6A), Color(0xFF2E7D32)) else getCategoryGradient(transaction.category)
-    val logoUrl = if (!isRepayment) LogoUtils.getLogoUrl(transaction.description) else null
+    val icon = if (isRepayment) Icons.Default.CurrencyExchange else try { getCategoryIcon(transaction.category) } catch (e: Exception) { Icons.Default.MiscellaneousServices }
+    val gradientColors = if (isRepayment) listOf(Color(0xFF66BB6A), Color(0xFF2E7D32)) else try { getCategoryGradient(transaction.category) } catch (e: Exception) { listOf(Color.Gray, Color.LightGray) }
+    val logoUrl = if (!isRepayment) try { LogoUtils.getLogoUrl(transaction.description) } catch(e: Exception) { null } else null
 
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),

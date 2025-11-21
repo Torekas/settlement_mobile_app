@@ -8,13 +8,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CloudDownload // NOWA IKONA
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,8 +26,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -39,28 +38,27 @@ fun TripListScreen(
     onLogout: () -> Unit,
     onTripClick: (Long) -> Unit
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val trips by viewModel.allTrips.collectAsState(initial = emptyList())
     val context = LocalContext.current
 
+    var showAddDialog by remember { mutableStateOf(false) }
     var tripToDelete by remember { mutableStateOf<Trip?>(null) }
 
+    // --- 1. LAUNCHER DO IMPORTU ---
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri != null) {
+        uri?.let {
             try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val reader = BufferedReader(InputStreamReader(inputStream))
-                val json = reader.readText()
-                reader.close()
-                inputStream?.close()
-
-                if (json.isNotBlank()) {
+                val json = ExportUtils.readJsonFromUri(context, it)
+                if (json != null) {
                     viewModel.importTrip(json)
-                    Toast.makeText(context, "Zaimportowano wyjazd!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Rozpoczęto importowanie...", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Błąd odczytu pliku", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Błąd odczytu: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Błąd: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -68,59 +66,138 @@ fun TripListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Twoje Wyjazdy") },
+                title = {
+                    Text(
+                        "Twoje Wyjazdy",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 actions = {
+                    // --- 2. PRZYCISK IMPORTU ---
                     IconButton(onClick = {
-                        importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                        // Otwieramy wybór plików (tylko JSON)
+                        importLauncher.launch(arrayOf("application/json"))
                     }) {
-                        Icon(Icons.Default.Download, contentDescription = "Importuj")
+                        // Używamy FileDownload - to standardowa ikona importu/pobierania
+                        Icon(Icons.Default.UploadFile, contentDescription = "Importuj wyjazd")
                     }
+
                     IconButton(onClick = onLogout) {
                         Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Wyloguj")
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { viewModel.setDialogVisibility(true) }) {
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.padding(bottom = 60.dp)
+            ) {
                 Icon(Icons.Default.Add, contentDescription = "Dodaj wyjazd")
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (state.isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (state.trips.isEmpty()) {
-                Text(
-                    text = "Brak wyjazdów. Kliknij + aby dodać.",
-                    modifier = Modifier.align(Alignment.Center),
-                    color = Color.Gray
-                )
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+        LazyColumn(
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding() + 8.dp,
+                bottom = padding.calculateBottomPadding() + 80.dp,
+                start = 16.dp,
+                end = 16.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            items(trips) { trip ->
+                val dateString = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(trip.startDate))
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onTripClick(trip.tripId) },
+                    elevation = CardDefaults.cardElevation(4.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    items(state.trips) { trip ->
-                        TripItem(
-                            trip = trip,
-                            onClick = { onTripClick(trip.tripId) },
-                            onDelete = { tripToDelete = trip }
-                        )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            // Zdjęcie
+                            Box(modifier = Modifier.height(150.dp).fillMaxWidth()) {
+                                if (trip.imageUrl != null) {
+                                    AsyncImage(
+                                        model = trip.imageUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                                    )
+                                }
+                            }
+
+                            // Sekcja tekstowa
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
+                            ) {
+                                Text(
+                                    text = trip.name,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.DateRange,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = dateString,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            }
+                        }
+
+                        // Przycisk usuwania
+                        IconButton(
+                            onClick = { tripToDelete = trip },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                .size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Usuń",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
         }
 
-        if (state.showAddDialog) {
+        if (showAddDialog) {
             AddTripDialog(
-                onDismiss = { viewModel.setDialogVisibility(false) },
-                onConfirm = { name, currency ->
-                    viewModel.addNewTrip(name, currency, userId)
+                onDismiss = { showAddDialog = false },
+                onConfirm = { name, dateMillis ->
+                    viewModel.addTrip(context, name, dateMillis)
+                    showAddDialog = false
                 }
             )
         }
@@ -128,109 +205,99 @@ fun TripListScreen(
         if (tripToDelete != null) {
             AlertDialog(
                 onDismissRequest = { tripToDelete = null },
-                title = { Text("Usuń wyjazd") },
-                text = { Text("Czy na pewno chcesz usunąć wyjazd \"${tripToDelete?.name}\"?") },
+                title = { Text("Usunąć wyjazd?") },
+                text = {
+                    Text("Czy na pewno chcesz usunąć wyjazd \"${tripToDelete?.name}\"?\nTej operacji nie można cofnąć.")
+                },
                 confirmButton = {
                     Button(
                         onClick = {
-                            tripToDelete?.let { viewModel.deleteTrip(it.tripId) }
+                            tripToDelete?.let { trip ->
+                                viewModel.deleteTrip(trip.tripId)
+                            }
                             tripToDelete = null
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) { Text("Usuń") }
-                },
-                dismissButton = { TextButton(onClick = { tripToDelete = null }) { Text("Anuluj") } }
-            )
-        }
-    }
-}
-
-@Composable
-fun TripItem(trip: Trip, onClick: () -> Unit, onDelete: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(140.dp)
-            .clickable { onClick() },
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (trip.imageUrl != null) {
-                AsyncImage(
-                    model = trip.imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer))
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.4f))
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column {
-                    // TU ZMIANA: Nazwa + Ikonka importu
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = trip.name,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-
-                        if (trip.isImported) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Icon(
-                                imageVector = Icons.Default.CloudDownload,
-                                contentDescription = "Importowany",
-                                tint = Color.White.copy(alpha = 0.8f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
+                    ) {
+                        Text("Usuń")
                     }
-
-                    Text(
-                        text = "Waluta: ${trip.mainCurrency}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.8f)
-                    )
+                },
+                dismissButton = {
+                    TextButton(onClick = { tripToDelete = null }) {
+                        Text("Anuluj")
+                    }
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, contentDescription = "Usuń", tint = Color.White)
-                }
-            }
+            )
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddTripDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+fun AddTripDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, Long) -> Unit
+) {
     var name by remember { mutableStateOf("") }
-    var currency by remember { mutableStateOf("PLN") }
+
+    val datePickerState = rememberDatePickerState()
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    val selectedDateMillis = datePickerState.selectedDateMillis ?: System.currentTimeMillis()
+    val dateString = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(selectedDateMillis))
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Nowy wyjazd") },
         text = {
             Column {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nazwa wyjazdu") }, singleLine = true)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = currency, onValueChange = { currency = it }, label = { Text("Waluta (np. PLN)") }, singleLine = true)
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nazwa wyjazdu (np. Wakacje w Rzymie)") },
+                    singleLine = true
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = dateString,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Data rozpoczęcia") },
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.DateRange, contentDescription = "Wybierz datę")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }
+                )
             }
         },
-        confirmButton = { Button(onClick = { onConfirm(name, currency) }) { Text("Utwórz") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
+        confirmButton = {
+            Button(onClick = {
+                if (name.isNotBlank()) {
+                    onConfirm(name, selectedDateMillis)
+                }
+            }) {
+                Text("Dodaj")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Anuluj") }
+        }
     )
+
+    if (showDatePicker) {
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Anuluj") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 }

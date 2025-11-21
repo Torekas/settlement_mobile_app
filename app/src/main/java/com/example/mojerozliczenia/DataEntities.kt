@@ -1,6 +1,8 @@
 package com.example.mojerozliczenia
 
 import androidx.room.*
+import kotlinx.coroutines.flow.Flow
+import com.example.mojerozliczenia.packing.PackingItem
 
 @Entity(tableName = "users")
 data class User(
@@ -11,14 +13,16 @@ data class User(
 
 @Entity(tableName = "trips")
 data class Trip(
-    @PrimaryKey(autoGenerate = true) val tripId: Long = 0,
+    @PrimaryKey(autoGenerate = true) val tripId: Long = 0, // To jest klucz główyny
     val name: String,
     val mainCurrency: String = "PLN",
     val isArchived: Boolean = false,
     val createdDate: Long = System.currentTimeMillis(),
     val imageUrl: String? = null,
-    // NOWE POLE: Czy wyjazd jest importowany?
-    val isImported: Boolean = false
+    val isImported: Boolean = false,
+    val destination: String,
+    val startDate: Long = System.currentTimeMillis(),
+    val totalCost: Double = 0.0
 )
 
 @Entity(primaryKeys = ["tripId", "userId"])
@@ -58,10 +62,13 @@ data class TransactionSplit(
 interface AppDao {
     @Query("SELECT * FROM users WHERE username = :name LIMIT 1")
     suspend fun getUserByName(name: String): User?
+
     @Insert
     suspend fun insertUser(user: User): Long
+
     @Query("SELECT * FROM trips ORDER BY createdDate DESC")
-    suspend fun getAllTrips(): List<Trip>
+    fun getAllTrips(): Flow<List<Trip>>
+
     @Insert
     suspend fun insertTrip(trip: Trip): Long
     @Insert
@@ -93,6 +100,12 @@ interface AppDao {
     @Query("DELETE FROM trips WHERE tripId = :tripId")
     suspend fun deleteTripById(tripId: Long)
 
+    @Query("SELECT * FROM packing_items WHERE tripId = :tripId")
+    suspend fun getPackingItemsSync(tripId: Long): List<PackingItem>
+
+    @Query("DELETE FROM TripMember WHERE tripId = :tripId AND userId = :userId")
+    suspend fun removeMemberFromTrip(tripId: Long, userId: Long)
+
     @androidx.room.Transaction
     suspend fun deleteEntireTrip(tripId: Long) {
         deleteSplitsByTripId(tripId)
@@ -101,4 +114,5 @@ interface AppDao {
         deleteRatesByTripId(tripId)
         deleteTripById(tripId)
     }
+
 }

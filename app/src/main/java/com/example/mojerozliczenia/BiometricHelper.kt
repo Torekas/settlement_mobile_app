@@ -29,7 +29,6 @@ object BiometricHelper {
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                 super.onAuthenticationError(errorCode, errString)
-                // Ignorujemy anulowanie przez użytkownika, inne błędy zgłaszamy
                 if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
                     Toast.makeText(activity, "Błąd biometrii: $errString", Toast.LENGTH_SHORT).show()
                 }

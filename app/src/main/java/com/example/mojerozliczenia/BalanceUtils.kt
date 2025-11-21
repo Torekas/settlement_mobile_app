@@ -4,12 +4,6 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.round
 
-data class Debt(
-    val fromUserId: Long,
-    val toUserId: Long,
-    val amount: Double
-)
-
 object BalanceUtils {
 
     // Saldo ujemne = dłużnik, Saldo dodatnie = nadpłacający
@@ -39,7 +33,7 @@ object BalanceUtils {
         return balances
     }
 
-    // 2. Obliczanie długów (korzysta z powyższej funkcji)
+    // Obliczanie długów (korzysta z powyższej funkcji)
     fun calculateDebts(
         transactions: List<Transaction>,
         splits: List<TransactionSplit>

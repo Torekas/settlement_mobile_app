@@ -4,23 +4,31 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import java.security.MessageDigest
+import androidx.room.TypeConverters
 
-object SecurityUtils {
-    fun hashPassword(password: String): String {
-        val bytes = password.toByteArray()
-        val md = MessageDigest.getInstance("SHA-256")
-        val digest = md.digest(bytes)
-        return digest.fold("") { str, it -> str + "%02x".format(it) }
-    }
-}
+// Importy
+import com.example.mojerozliczenia.packing.PackingItem
+import com.example.mojerozliczenia.packing.PackingDao
+import com.example.mojerozliczenia.Converters
 
 @Database(
-    entities = [User::class, Trip::class, TripMember::class, ExchangeRate::class, Transaction::class, TransactionSplit::class],
-    version = 7 // <--- ZMIANA NA 7
+    entities = [
+        User::class,
+        Trip::class,
+        TripMember::class,
+        ExchangeRate::class,
+        Transaction::class,
+        TransactionSplit::class,
+        PackingItem::class
+    ],
+    version = 9,
+    exportSchema = false
 )
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
+
     abstract fun appDao(): AppDao
+    abstract fun packingDao(): PackingDao
 
     companion object {
         @Volatile
@@ -31,7 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "split_trip_database"
+                    "app_database"
                 )
                     .fallbackToDestructiveMigration()
                     .build()
