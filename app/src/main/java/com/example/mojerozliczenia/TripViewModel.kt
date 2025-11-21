@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.text.Normalizer
+import java.net.URLEncoder
 
 data class TripUiState(
     val trips: List<Trip> = emptyList(),
@@ -37,7 +39,14 @@ class TripViewModel(private val dao: AppDao) : ViewModel() {
         if (name.isBlank()) return
 
         viewModelScope.launch {
-            val newTrip = Trip(name = name, mainCurrency = currency)
+            val imageUrl = generateBetterImageUrl(name)
+            val newTrip = Trip(
+                name = name,
+                mainCurrency = currency,
+                imageUrl = imageUrl,
+                isImported = false // To jest nasz własny wyjazd
+            )
+
             val tripId = dao.insertTrip(newTrip)
             dao.insertTripMember(TripMember(tripId = tripId, userId = creatorId))
             loadTrips()
@@ -45,19 +54,26 @@ class TripViewModel(private val dao: AppDao) : ViewModel() {
         }
     }
 
-    fun deleteTrip(tripId: Long) {
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true)
-            dao.deleteEntireTrip(tripId)
-            loadTrips()
-        }
+    private fun generateBetterImageUrl(originalName: String): String {
+        val normalized = Normalizer.normalize(originalName, Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        val prompt = "beautiful travel photography of $normalized, cityscape, famous landmark, cinematic lighting, 4k, high resolution"
+        val encodedPrompt = URLEncoder.encode(prompt, "UTF-8")
+        return "https://image.pollinations.ai/prompt/$encodedPrompt?width=800&height=500&nologo=true&seed=${System.currentTimeMillis()}"
     }
 
-    // Funkcja importu
     fun importTrip(json: String) {
         viewModelScope.launch {
             val data = ExportUtils.jsonToTrip(json) ?: return@launch
-            val newTrip = Trip(name = "${data.name} (Import)", mainCurrency = data.mainCurrency)
+
+            val imageUrl = generateBetterImageUrl(data.name)
+
+            val newTrip = Trip(
+                name = data.name, // ZMIANA: Zostawiamy oryginalną nazwę!
+                mainCurrency = data.mainCurrency,
+                imageUrl = imageUrl,
+                isImported = true // ZMIANA: Ustawiamy flagę importu
+            )
             val newTripId = dao.insertTrip(newTrip)
             val userMap = mutableMapOf<String, Long>()
 
@@ -89,6 +105,14 @@ class TripViewModel(private val dao: AppDao) : ViewModel() {
                     }
                 }
             }
+            loadTrips()
+        }
+    }
+
+    fun deleteTrip(tripId: Long) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            dao.deleteEntireTrip(tripId)
             loadTrips()
         }
     }

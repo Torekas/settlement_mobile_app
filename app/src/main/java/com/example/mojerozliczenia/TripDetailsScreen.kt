@@ -35,15 +35,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import java.util.Locale
 
-// 1. Konfiguracja Kolorów i Ikon
 fun getCategoryIcon(categoryName: String): ImageVector {
     return try { ExpenseCategory.valueOf(categoryName).icon } catch (e: Exception) { Icons.Default.MiscellaneousServices }
 }
@@ -59,7 +61,6 @@ fun getCategoryColor(categoryName: String): Color {
     }
 }
 
-// Generowanie koloru avatara na podstawie imienia
 fun getNameColor(name: String): Color {
     val hash = name.hashCode()
     val colors = listOf(
@@ -159,12 +160,11 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                 enter = fadeIn() + slideInVertically(initialOffsetY = { 50 })
             ) {
                 Column(modifier = Modifier.padding(padding).padding(16.dp).fillMaxSize()) {
-
                     when (selectedTab) {
-                        0 -> { // --- PULPIT ---
+                        0 -> {
                             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                                 GradientCard(
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                                     colors = listOf(Color(0xFF6200EA), Color(0xFFB388FF))
                                 ) {
                                     Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -179,8 +179,29 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                                     }
                                 }
 
+                                if (state.currencySummaries.isNotEmpty()) {
+                                    LazyRow(
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        items(state.currencySummaries.toList()) { (curr, amount) ->
+                                            AssistChip(
+                                                onClick = {},
+                                                label = {
+                                                    Text(
+                                                        text = "${String.format(Locale.US, "%.2f", amount)} $curr",
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                },
+                                                modifier = Modifier.padding(horizontal = 4.dp),
+                                                colors = AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                                            )
+                                        }
+                                    }
+                                }
+
                                 Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Uczestnicy", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                    Text("Ekipa", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                                     TextButton(onClick = { viewModel.setAddMemberDialogVisibility(true) }) { Icon(Icons.Default.PersonAdd, null); Text("Dodaj") }
                                 }
                                 LazyRow(modifier = Modifier.padding(bottom = 24.dp)) {
@@ -226,7 +247,7 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                                 }
                             }
                         }
-                        2 -> { // --- ROZLICZENIE (NOWY WYGLĄD) ---
+                        2 -> { // --- ROZLICZENIE ---
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
                                 item {
                                     Text("Plan spłat", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -243,7 +264,7 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                                             Icon(
                                                 Icons.Default.CheckCircle,
                                                 contentDescription = null,
-                                                tint = Color(0xFF81C784), // Ładny zielony
+                                                tint = Color(0xFF81C784),
                                                 modifier = Modifier.size(96.dp)
                                             )
                                             Spacer(modifier = Modifier.height(16.dp))
@@ -284,7 +305,15 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
                 toName = viewModel.getMemberName(selectedDebt!!.toUserId),
                 currency = state.trip?.mainCurrency ?: "PLN",
                 onDismiss = { showSettleDialog = false },
-                onConfirm = { amount -> viewModel.settleDebt(selectedDebt!!.fromUserId, selectedDebt!!.toUserId, amount, state.trip?.mainCurrency ?: "PLN"); showSettleDialog = false }
+                onConfirm = { amount ->
+                    viewModel.settleDebt(
+                        selectedDebt!!.fromUserId,
+                        selectedDebt!!.toUserId,
+                        amount,
+                        state.trip?.mainCurrency ?: "PLN"
+                    )
+                    showSettleDialog = false
+                }
             )
         }
 
@@ -298,17 +327,8 @@ fun TripDetailsScreen(tripId: Long, viewModel: TripDetailsViewModel, onBack: () 
 fun UserAvatar(name: String, modifier: Modifier = Modifier) {
     val color = getNameColor(name)
     val initials = if (name.isNotEmpty()) name.take(1).uppercase() else "?"
-
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(color),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(initials, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-        }
+        Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) { Text(initials, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
         Spacer(Modifier.height(4.dp))
         Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
@@ -322,57 +342,19 @@ fun ModernDebtItem(fromName: String, toName: String, amount: Double, currency: S
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Wiersz przepływu: Avatar -> Strzałka -> Avatar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Dłużnik
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    UserAvatar(name = fromName)
-                }
-
-                // Strzałka i akcja
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("oddaje", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowForward,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-
-                // Wierzyciel
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    UserAvatar(name = toName)
-                }
+                Row(verticalAlignment = Alignment.CenterVertically) { UserAvatar(name = fromName) }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("oddaje", style = MaterialTheme.typography.labelSmall, color = Color.Gray); Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp)) }
+                Row(verticalAlignment = Alignment.CenterVertically) { UserAvatar(name = toName) }
             }
-
             Divider(modifier = Modifier.padding(vertical = 12.dp))
-
-            // Wiersz Kwoty i Przycisku
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "${String.format(Locale.US, "%.2f", amount)} $currency",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error // Kolor długu
-                )
-
-                Button(
-                    onClick = onSettleClick,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Spłać")
-                }
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(text = "${String.format(Locale.US, "%.2f", amount)} $currency", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                Button(onClick = onSettleClick, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)) { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Spłać") }
             }
         }
     }
@@ -383,7 +365,6 @@ fun PieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
     val total = data.values.sum()
     val animatedProgress = remember { Animatable(0f) }
     LaunchedEffect(data) { animatedProgress.animateTo(1f, animationSpec = tween(durationMillis = 800)) }
-
     Canvas(modifier = modifier) {
         val center = Offset(size.width / 2f, size.height / 2f)
         val radius = size.minDimension / 2f
@@ -391,37 +372,79 @@ fun PieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
         var startAngle = -90f
         data.forEach { (category, amount) ->
             val sweepAngle = (amount.toFloat() / total.toFloat()) * 360f * animatedProgress.value
-            drawArc(
-                brush = Brush.linearGradient(getCategoryGradient(category)),
-                startAngle = startAngle,
-                sweepAngle = sweepAngle,
-                useCenter = false,
-                topLeft = Offset(center.x - radius + strokeWidth/2, center.y - radius + strokeWidth/2),
-                size = Size((radius - strokeWidth/2) * 2, (radius - strokeWidth/2) * 2),
-                style = Stroke(width = strokeWidth)
-            )
+            drawArc(brush = Brush.linearGradient(getCategoryGradient(category)), startAngle = startAngle, sweepAngle = sweepAngle, useCenter = false, topLeft = Offset(center.x - radius + strokeWidth/2, center.y - radius + strokeWidth/2), size = Size((radius - strokeWidth/2) * 2, (radius - strokeWidth/2) * 2), style = Stroke(width = strokeWidth))
             startAngle += sweepAngle
         }
     }
 }
 
 @Composable
-fun SettleDebtDialog(debt: Debt, fromName: String, toName: String, currency: String, onDismiss: () -> Unit, onConfirm: (Double) -> Unit) {
+fun SettleDebtDialog(
+    debt: Debt,
+    fromName: String,
+    toName: String,
+    currency: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Double) -> Unit
+) {
     var amountString by remember { mutableStateOf(debt.amount.toString()) }
+    val inputAmount = amountString.toDoubleOrNull() ?: 0.0
+    val difference = inputAmount - debt.amount
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Spłata długu") },
-        text = { Column { Text("$fromName oddaje pieniądze dla $toName"); Spacer(Modifier.height(8.dp)); OutlinedTextField(value = amountString, onValueChange = { amountString = it }, label = { Text("Kwota ($currency)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) } },
-        confirmButton = { Button(onClick = { val amount = amountString.toDoubleOrNull(); if (amount != null && amount > 0) onConfirm(amount) }) { Text("Zatwierdź") } },
+        text = {
+            Column {
+                Text("$fromName oddaje pieniądze dla $toName", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = amountString,
+                    onValueChange = { amountString = it },
+                    label = { Text("Kwota ($currency)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+
+                if (inputAmount > 0) {
+                    if (difference > 0.01) {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("⚠️ Nadpłata!", color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
+                                Text("$toName będzie winien $fromName: ${String.format(Locale.US, "%.2f", difference)} $currency", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    } else if (difference < -0.01) {
+                        Text("Pozostanie do spłaty: ${String.format(Locale.US, "%.2f", kotlin.math.abs(difference))} $currency", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    } else {
+                        Text("Spłata całkowita ✅", color = Color(0xFF388E3C), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (inputAmount > 0) {
+                        onConfirm(inputAmount)
+                    }
+                }
+            ) { Text("Zatwierdź") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
     )
 }
 
 @Composable
 fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () -> Unit, mainCurrency: String) {
+    val context = LocalContext.current
     val isRepayment = transaction.isRepayment
     val icon = if (isRepayment) Icons.Default.CurrencyExchange else getCategoryIcon(transaction.category)
     val gradientColors = if (isRepayment) listOf(Color(0xFF66BB6A), Color(0xFF2E7D32)) else getCategoryGradient(transaction.category)
+
+    // Pobieranie logo (Opcja 2 - loga sklepów)
+    val logoUrl = if (!isRepayment) LogoUtils.getLogoUrl(transaction.description) else null
 
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -430,16 +453,35 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
     ) {
         Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                modifier = Modifier.size(48.dp).clip(CircleShape).background(Brush.linearGradient(gradientColors)),
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Brush.linearGradient(gradientColors)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                if (logoUrl != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(logoUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        error = rememberVectorPainter(icon),
+                        placeholder = rememberVectorPainter(icon)
+                    )
+                } else {
+                    Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                }
             }
+
             Spacer(modifier = Modifier.width(16.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(transaction.description, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(if(isRepayment) "$payerName spłaca" else "$payerName (${transaction.category})", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
             }
+
             Column(horizontalAlignment = Alignment.End) {
                 Text("${String.format(Locale.US, "%.2f", transaction.amount)} ${transaction.currency}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                 if (transaction.currency != mainCurrency) {
@@ -447,6 +489,7 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
                     Text("≈ ${String.format(Locale.US, "%.2f", converted)} $mainCurrency", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
             }
+
             IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Usuń", tint = Color.Gray.copy(alpha = 0.5f)) }
         }
     }

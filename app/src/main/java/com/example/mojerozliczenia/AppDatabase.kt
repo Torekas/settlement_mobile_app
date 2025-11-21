@@ -17,7 +17,7 @@ object SecurityUtils {
 
 @Database(
     entities = [User::class, Trip::class, TripMember::class, ExchangeRate::class, Transaction::class, TransactionSplit::class],
-    version = 4
+    version = 7 // <--- ZMIANA NA 7
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun appDao(): AppDao

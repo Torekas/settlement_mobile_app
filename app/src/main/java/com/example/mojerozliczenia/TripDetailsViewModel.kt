@@ -11,8 +11,10 @@ data class TripDetailsUiState(
     val members: List<User> = emptyList(),
     val transactions: List<Transaction> = emptyList(),
     val debts: List<Debt> = emptyList(),
-    val totalSpent: Double = 0.0,
+    val totalSpent: Double = 0.0, // Suma w walucie głównej (po przeliczeniu)
     val categorySummaries: Map<String, Double> = emptyMap(),
+    // NOWE POLE: Sumy w oryginalnych walutach (np. { "EUR": 50.0, "PLN": 100.0 })
+    val currencySummaries: Map<String, Double> = emptyMap(),
     val isLoading: Boolean = true,
     val showAddMemberDialog: Boolean = false
 )
@@ -33,10 +35,19 @@ class TripDetailsViewModel(private val dao: AppDao) : ViewModel() {
             val splits = dao.getSplitsForTrip(tripId)
 
             val debts = BalanceUtils.calculateDebts(transactions, splits)
+
+            // 1. Suma całkowita w walucie głównej (z kursami)
             val total = transactions.filter { !it.isRepayment }.sumOf { it.amount * it.exchangeRate }
+
+            // 2. Sumy kategorii (z kursami)
             val catSum = transactions.filter { !it.isRepayment }
                 .groupBy { it.category }
                 .mapValues { entry -> entry.value.sumOf { it.amount * it.exchangeRate } }
+
+            // 3. NOWOŚĆ: Sumy per waluta (bez przeliczania kursu - to co realnie wydano)
+            val currSum = transactions.filter { !it.isRepayment }
+                .groupBy { it.currency }
+                .mapValues { entry -> entry.value.sumOf { it.amount } }
 
             _uiState.value = _uiState.value.copy(
                 trip = trip,
@@ -45,6 +56,7 @@ class TripDetailsViewModel(private val dao: AppDao) : ViewModel() {
                 debts = debts,
                 totalSpent = total,
                 categorySummaries = catSum,
+                currencySummaries = currSum, // <--- Przypisanie
                 isLoading = false
             )
         }

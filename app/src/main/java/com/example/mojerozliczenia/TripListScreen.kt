@@ -3,13 +3,16 @@ package com.example.mojerozliczenia
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDownload // NOWA IKONA
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
@@ -17,9 +20,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
@@ -37,10 +42,8 @@ fun TripListScreen(
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
 
-    // Stan dla dialogu potwierdzenia usuwania
     var tripToDelete by remember { mutableStateOf<Trip?>(null) }
 
-    // Import pliku
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -100,13 +103,13 @@ fun TripListScreen(
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(state.trips) { trip ->
                         TripItem(
                             trip = trip,
                             onClick = { onTripClick(trip.tripId) },
-                            onDelete = { tripToDelete = trip } // Ustawiamy wyjazd do usunięcia
+                            onDelete = { tripToDelete = trip }
                         )
                     }
                 }
@@ -126,7 +129,7 @@ fun TripListScreen(
             AlertDialog(
                 onDismissRequest = { tripToDelete = null },
                 title = { Text("Usuń wyjazd") },
-                text = { Text("Czy na pewno chcesz usunąć wyjazd \"${tripToDelete?.name}\"? Tej operacji nie można cofnąć.") },
+                text = { Text("Czy na pewno chcesz usunąć wyjazd \"${tripToDelete?.name}\"?") },
                 confirmButton = {
                     Button(
                         onClick = {
@@ -134,15 +137,9 @@ fun TripListScreen(
                             tripToDelete = null
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Usuń")
-                    }
+                    ) { Text("Usuń") }
                 },
-                dismissButton = {
-                    TextButton(onClick = { tripToDelete = null }) {
-                        Text("Anuluj")
-                    }
-                }
+                dismissButton = { TextButton(onClick = { tripToDelete = null }) { Text("Anuluj") } }
             )
         }
     }
@@ -151,27 +148,68 @@ fun TripListScreen(
 @Composable
 fun TripItem(trip: Trip, onClick: () -> Unit, onDelete: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(140.dp)
+            .clickable { onClick() },
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        shape = RoundedCornerShape(12.dp)
     ) {
-        Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = trip.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "Waluta: ${trip.mainCurrency}", style = MaterialTheme.typography.bodyMedium)
-
-                    val dateFormat = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-                    Text(text = dateFormat.format(Date(trip.createdDate)), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                }
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (trip.imageUrl != null) {
+                AsyncImage(
+                    model = trip.imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer))
             }
 
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Usuń wyjazd", tint = Color.Gray)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.4f))
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column {
+                    // TU ZMIANA: Nazwa + Ikonka importu
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = trip.name,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+
+                        if (trip.isImported) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = "Importowany",
+                                tint = Color.White.copy(alpha = 0.8f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Waluta: ${trip.mainCurrency}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Usuń", tint = Color.White)
+                }
             }
         }
     }
