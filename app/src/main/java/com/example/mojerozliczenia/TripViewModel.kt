@@ -1,71 +1,47 @@
 package com.example.mojerozliczenia
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import java.net.URLEncoder
-import java.text.Normalizer
-import java.util.Locale
-import android.content.Context
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import com.example.mojerozliczenia.packing.PackingNotificationWorker
+import com.example.mojerozliczenia.planner.PlannerDao
+import com.example.mojerozliczenia.planner.PlannerEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import java.net.URLEncoder
+import java.text.Normalizer
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-data class TripUiState(
-    val trips: List<Trip> = emptyList(),
-    val isLoading: Boolean = false,
-    val showAddDialog: Boolean = false
-)
+class TripViewModel(
+    private val dao: AppDao,
+    private val plannerDao: PlannerDao // Nowy parametr w konstruktorze
+) : ViewModel() {
 
-class TripViewModel(private val dao: AppDao) : ViewModel() {
-
-    // To jest pole, którego szuka TripListScreen (Flow bezpośrednio z bazy)
     val allTrips: Flow<List<Trip>> = dao.getAllTrips()
 
-    // Funkcja dodawania wyjazdu dopasowana do TripListScreen
     fun addTrip(context: Context, name: String, dateMillis: Long) {
         if (name.isBlank()) return
-
         viewModelScope.launch {
             val imageUrl = generateSmartImageUrl(name)
-
-            // Zakładamy, że nazwa wyjazdu to też destination
-            val newTrip = Trip(
-                name = name,
-                destination = name,
-                mainCurrency = "PLN", // Domyślna waluta
-                imageUrl = imageUrl,
-                isImported = false,
-                startDate = dateMillis
-            )
-
+            val newTrip = Trip(name = name, destination = name, mainCurrency = "PLN", imageUrl = imageUrl, isImported = false, startDate = dateMillis)
             val tripId = dao.insertTrip(newTrip)
-
-            // Tutaj używamy contextu przekazanego w parametrze
             scheduleNotification(context, name, dateMillis)
-
-            // Opcjonalnie: dodaj twórcę jako członka, jeśli masz userId
-            // dao.insertTripMember(TripMember(tripId = tripId, userId = userId))
         }
     }
 
     private fun scheduleNotification(context: Context, destination: String, dateMillis: Long) {
         val currentTime = System.currentTimeMillis()
-        val notificationTime = dateMillis + 28800000 // 8:00 rano
+        val notificationTime = dateMillis + 28800000
         val delay = notificationTime - currentTime
-
         if (delay > 0) {
             val workRequest = OneTimeWorkRequestBuilder<PackingNotificationWorker>()
                 .setInitialDelay(delay, TimeUnit.MILLISECONDS)
                 .setInputData(workDataOf("trip_name" to destination))
                 .build()
-
             WorkManager.getInstance(context).enqueue(workRequest)
         }
     }
@@ -76,7 +52,7 @@ class TripViewModel(private val dao: AppDao) : ViewModel() {
         }
     }
 
-    // Funkcja importu
+    // --- AKTUALIZACJA: IMPORT Z PLANEREM ---
     fun importTrip(json: String) {
         viewModelScope.launch {
             val data = ExportUtils.jsonToTrip(json) ?: return@launch
@@ -84,11 +60,11 @@ class TripViewModel(private val dao: AppDao) : ViewModel() {
 
             val newTrip = Trip(
                 name = data.name,
-                destination = data.name, // Używamy nazwy jako celu
+                destination = data.name,
                 mainCurrency = data.mainCurrency,
                 imageUrl = imageUrl,
                 isImported = true,
-                startDate = System.currentTimeMillis() // Domyślna data dla importu
+                startDate = System.currentTimeMillis()
             )
             val newTripId = dao.insertTrip(newTrip)
             val userMap = mutableMapOf<String, Long>()
@@ -120,6 +96,21 @@ class TripViewModel(private val dao: AppDao) : ViewModel() {
                         dao.insertTransactionSplit(TransactionSplit(transactionId = newTxId, beneficiaryId = benId, weight = 1.0))
                     }
                 }
+            }
+
+            // --- IMPORT DANYCH PLANERA ---
+            data.plannerEvents?.let { events ->
+                val plannerEntities = events.map { eventData ->
+                    PlannerEvent(
+                        tripId = newTripId,
+                        title = eventData.title,
+                        description = eventData.description,
+                        timeInMillis = eventData.timeInMillis,
+                        locationName = eventData.locationName,
+                        isDone = eventData.isDone
+                    )
+                }
+                plannerDao.insertAll(plannerEntities)
             }
         }
     }

@@ -26,6 +26,8 @@ import androidx.navigation.navArgument
 import com.example.mojerozliczenia.flights.FlightSearchActivity
 import com.example.mojerozliczenia.packing.PackingListScreen
 import com.example.mojerozliczenia.packing.PackingViewModel
+import com.example.mojerozliczenia.planner.PlannerScreen
+import com.example.mojerozliczenia.planner.PlannerViewModel
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,7 +36,6 @@ class MainActivity : FragmentActivity() {
         val db = AppDatabase.getDatabase(applicationContext)
         val sessionManager = SessionManager(applicationContext)
 
-        // Sprawdzamy sesję na starcie
         val savedUserId = sessionManager.fetchUserId()
         val startDestination = if (savedUserId != -1L) "trip_list/$savedUserId" else "auth"
 
@@ -43,15 +44,17 @@ class MainActivity : FragmentActivity() {
                 val navController = rememberNavController()
                 val context = LocalContext.current
 
-                // Inicjalizacja ViewModeli
                 val authViewModel = remember { AuthViewModel(db.appDao(), sessionManager) }
-                val tripViewModel = remember { TripViewModel(db.appDao()) }
+
+                // ZMIANA: Przekazujemy plannerDao do TripViewModel (do importu)
+                val tripViewModel = remember { TripViewModel(db.appDao(), db.plannerDao()) }
 
                 val packingViewModel = remember { PackingViewModel(db.packingDao()) }
+                val plannerViewModel = remember { PlannerViewModel(db.plannerDao()) }
 
-                // Tutaj tworzymy TripDetailsViewModel z dwoma DAO
+                // ZMIANA: Przekazujemy plannerDao do TripDetailsViewModel (do eksportu)
                 val tripDetailsViewModel = remember {
-                    TripDetailsViewModel(db.appDao(), db.packingDao())
+                    TripDetailsViewModel(db.appDao(), db.packingDao(), db.plannerDao())
                 }
 
                 val addExpenseViewModel = remember { AddExpenseViewModel(db.appDao()) }
@@ -61,7 +64,6 @@ class MainActivity : FragmentActivity() {
                     // --- EKRAN LOGOWANIA ---
                     composable("auth") {
                         AuthScreen(authViewModel) { userId ->
-                            // Po zalogowaniu czyścimy stos, żeby cofnąć się nie dało do logowania
                             navController.navigate("trip_list/$userId") {
                                 popUpTo(0) { inclusive = true }
                             }
@@ -81,10 +83,7 @@ class MainActivity : FragmentActivity() {
                                 viewModel = tripViewModel,
                                 userId = userId,
                                 onLogout = {
-                                    // 1. Czyścimy sesję
                                     sessionManager.clearSession()
-
-                                    // 2. Metoda "Atomowa": Restartujemy Activity.
                                     val intent = Intent(context, MainActivity::class.java)
                                     intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
                                     context.startActivity(intent)
@@ -131,6 +130,9 @@ class MainActivity : FragmentActivity() {
                             },
                             onAddExpenseClick = {
                                 navController.navigate("add_expense/$tripId")
+                            },
+                            onPlannerClick = {
+                                navController.navigate("planner/$tripId")
                             }
                         )
                     }
@@ -145,6 +147,19 @@ class MainActivity : FragmentActivity() {
                         PackingListScreen(
                             tripId = tripId,
                             viewModel = packingViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    // --- PLANER ---
+                    composable(
+                        "planner/{tripId}",
+                        arguments = listOf(navArgument("tripId") { type = NavType.LongType })
+                    ) { backStackEntry ->
+                        val tripId = backStackEntry.arguments?.getLong("tripId") ?: 0L
+                        PlannerScreen(
+                            tripId = tripId,
+                            viewModel = plannerViewModel,
                             onBack = { navController.popBackStack() }
                         )
                     }

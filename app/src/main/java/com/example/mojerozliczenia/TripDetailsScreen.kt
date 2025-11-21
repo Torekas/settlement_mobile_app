@@ -61,7 +61,8 @@ fun TripDetailsScreen(
     viewModel: TripDetailsViewModel,
     onBack: () -> Unit,
     onPackingClick: () -> Unit,
-    onAddExpenseClick: () -> Unit
+    onAddExpenseClick: () -> Unit,
+    onPlannerClick: () -> Unit
 ) {
     val context = LocalContext.current
     LaunchedEffect(tripId) { viewModel.loadTripData(tripId) }
@@ -71,6 +72,9 @@ fun TripDetailsScreen(
     var showSettleDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
+
+    // Stan widoczności menu opcji (trzy kropki)
+    var menuExpanded by remember { mutableStateOf(false) }
 
     var selectedDebt by remember { mutableStateOf<Debt?>(null) }
     var memberToRemove by remember { mutableStateOf<User?>(null) }
@@ -100,38 +104,86 @@ fun TripDetailsScreen(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text(state.trip?.name ?: "Ładowanie...") },
+                    title = {
+                        Text(
+                            text = state.trip?.name ?: "Ładowanie...",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis // Obcinanie nazwy z "..." jeśli nadal za długa
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Wróć")
                         }
                     },
                     actions = {
-                        IconButton(onClick = { showEditDialog = true }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edytuj wyjazd")
+                        // --- MENU OPCJI (TRZY KROPKI) ---
+                        IconButton(onClick = { menuExpanded = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Opcje wyjazdu")
                         }
 
-                        IconButton(onClick = { showExportDialog = true }) {
-                            Icon(Icons.Default.Save, contentDescription = "Zapisz do pliku")
-                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            // 1. Edycja
+                            DropdownMenuItem(
+                                text = { Text("Edytuj wyjazd") },
+                                leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                onClick = {
+                                    showEditDialog = true
+                                    menuExpanded = false
+                                }
+                            )
 
-                        IconButton(onClick = onPackingClick) {
-                            Icon(
-                                imageVector = Icons.Filled.Luggage,
-                                contentDescription = "Lista Pakowania",
-                                tint = MaterialTheme.colorScheme.primary
+                            // 2. Planer
+                            DropdownMenuItem(
+                                text = { Text("Planer podróży") },
+                                leadingIcon = { Icon(Icons.Default.Event, null) },
+                                onClick = {
+                                    onPlannerClick()
+                                    menuExpanded = false
+                                }
+                            )
+
+                            // 3. Lista pakowania
+                            DropdownMenuItem(
+                                text = { Text("Lista pakowania") },
+                                leadingIcon = { Icon(Icons.Default.Luggage, null) }, // Wymaga icons-extended lub użyj np. Checklist
+                                onClick = {
+                                    onPackingClick()
+                                    menuExpanded = false
+                                }
+                            )
+
+                            HorizontalDivider()
+
+                            // 4. Zapisz do pliku
+                            DropdownMenuItem(
+                                text = { Text("Zapisz do pliku") },
+                                leadingIcon = { Icon(Icons.Default.Save, null) },
+                                onClick = {
+                                    showExportDialog = true
+                                    menuExpanded = false
+                                }
+                            )
+
+                            // 5. Udostępnij raport
+                            DropdownMenuItem(
+                                text = { Text("Udostępnij raport") },
+                                leadingIcon = { Icon(Icons.Default.Share, null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    val report = viewModel.generateShareReport()
+                                    val sendIntent = Intent().apply {
+                                        action = Intent.ACTION_SEND
+                                        putExtra(Intent.EXTRA_TEXT, report)
+                                        type = "text/plain"
+                                    }
+                                    context.startActivity(Intent.createChooser(sendIntent, "Wyślij Raport"))
+                                }
                             )
                         }
-
-                        IconButton(onClick = {
-                            val report = viewModel.generateShareReport()
-                            val sendIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_TEXT, report)
-                                type = "text/plain"
-                            }
-                            context.startActivity(Intent.createChooser(sendIntent, "Wyślij Raport"))
-                        }) { Icon(Icons.Default.Share, contentDescription = "Udostępnij Raport") }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                 )
@@ -294,7 +346,7 @@ fun TripDetailsScreen(
                                     }
                                 }
 
-                                // --- STRUKTURA WYDATKÓW (ZMODYFIKOWANA) ---
+                                // --- STRUKTURA WYDATKÓW ---
                                 if (state.categorySummaries.isNotEmpty()) {
                                     Row(modifier = Modifier.fillMaxWidth()) {
                                         Text(
@@ -317,7 +369,6 @@ fun TripDetailsScreen(
                                                 .padding(20.dp),
                                             verticalAlignment = Alignment.Top
                                         ) {
-                                            // LEWA STRONA: WYKRES DONUT
                                             Box(
                                                 modifier = Modifier.weight(0.8f),
                                                 contentAlignment = Alignment.Center
@@ -326,7 +377,6 @@ fun TripDetailsScreen(
                                                     data = state.categorySummaries,
                                                     modifier = Modifier.size(130.dp)
                                                 )
-                                                // Tekst w środku
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                     Text("Suma", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                                                     Text("100%", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
@@ -335,11 +385,8 @@ fun TripDetailsScreen(
 
                                             Spacer(modifier = Modifier.width(20.dp))
 
-                                            // PRAWA STRONA: LEGENDA Z PASKAMI
                                             Column(modifier = Modifier.weight(1.2f)) {
                                                 val total = state.categorySummaries.values.sum()
-
-                                                // Sortujemy malejąco po kwocie
                                                 state.categorySummaries.toList().sortedByDescending { it.second }.forEach { (cat, sum) ->
                                                     val percentage = if (total > 0) (sum / total).toFloat() else 0f
                                                     val polishName = try {
@@ -349,7 +396,6 @@ fun TripDetailsScreen(
                                                     val mainColor = colorList.firstOrNull() ?: Color.Gray
 
                                                     Column(modifier = Modifier.padding(bottom = 12.dp)) {
-                                                        // Nazwa i Procent
                                                         Row(
                                                             modifier = Modifier.fillMaxWidth(),
                                                             horizontalArrangement = Arrangement.SpaceBetween
@@ -367,20 +413,14 @@ fun TripDetailsScreen(
                                                                 color = mainColor
                                                             )
                                                         }
-
                                                         Spacer(modifier = Modifier.height(4.dp))
-
-                                                        // Pasek postępu
                                                         LinearProgressIndicator(
                                                             progress = { percentage },
                                                             modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
                                                             color = mainColor,
                                                             trackColor = mainColor.copy(alpha = 0.2f),
                                                         )
-
                                                         Spacer(modifier = Modifier.height(2.dp))
-
-                                                        // Kwota
                                                         Text(
                                                             text = "${String.format(Locale.US, "%.2f", sum)} ${state.trip?.mainCurrency}",
                                                             style = MaterialTheme.typography.labelSmall,
@@ -392,7 +432,6 @@ fun TripDetailsScreen(
                                         }
                                     }
                                 } else {
-                                    // Empty state
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -620,8 +659,7 @@ fun EditTripDialog(
     var showDatePicker by remember { mutableStateOf(false) }
 
     val selectedDateMillis = datePickerState.selectedDateMillis ?: currentDate
-    val dateString =
-        SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(selectedDateMillis))
+    val dateString = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()).format(Date(selectedDateMillis))
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -679,6 +717,7 @@ fun EditTripDialog(
     }
 }
 
+// FUNKCJA DONUT PIE CHART
 @Composable
 fun DonutPieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
     val total = data.values.sum()
@@ -690,33 +729,32 @@ fun DonutPieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
 
     Canvas(modifier = modifier) {
         val center = Offset(size.width / 2f, size.height / 2f)
-        // Mniejszy promień, żeby zmieścił się z grubym obrysem
         val radius = size.minDimension / 2f - 20f
-        val strokeWidth = 40f // Grubość "pączka"
+        val strokeWidth = 40f
 
         var startAngle = -90f
 
         data.forEach { (category, amount) ->
             val sweepAngle = (amount.toFloat() / total.toFloat()) * 360f * animatedProgress.value
             val colorList = try { getCategoryGradient(category) } catch(e: Exception) { listOf(Color.Gray, Color.LightGray) }
-            val brush = Brush.sweepGradient(colorList) // Używamy sweep gradient dla efektu kołowego
 
-            // Rysujemy łuk z przerwami
             if (sweepAngle > 0) {
                 drawArc(
-                    brush = Brush.linearGradient(colorList), // Lub linear gradient dla segmentu
+                    brush = Brush.linearGradient(colorList),
                     startAngle = startAngle,
-                    sweepAngle = sweepAngle - 2f, // -2f daje efekt przerwy między segmentami
+                    sweepAngle = sweepAngle - 2f,
                     useCenter = false,
                     topLeft = Offset(center.x - radius, center.y - radius),
                     size = Size(radius * 2, radius * 2),
-                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round) // Zaokrąglone końce
+                    style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                 )
             }
             startAngle += sweepAngle
         }
     }
 }
+
+// --- POZOSTAŁE KOMPONENTY (jeśli nie są w UiComponents) ---
 
 @Composable
 fun SettleDebtDialog(

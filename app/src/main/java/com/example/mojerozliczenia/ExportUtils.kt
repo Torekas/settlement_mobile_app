@@ -7,13 +7,14 @@ import com.google.gson.reflect.TypeToken
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
-// --- KLASY DANYCH (Muszą pasować do tych w ViewModelu) ---
 data class TripExportData(
     val name: String,
     val mainCurrency: String,
     val members: List<String>,
     val transactions: List<TransactionExportData>,
-    val packingList: List<String>? = null
+    val packingList: List<String>? = null,
+    // NOWE POLE: Lista zdarzeń z planera
+    val plannerEvents: List<PlannerEventExportData>? = null
 )
 
 data class TransactionExportData(
@@ -26,16 +27,22 @@ data class TransactionExportData(
     val isRepayment: Boolean,
     val beneficiaryNames: List<String>
 )
-// ---------------------------------------------------------
+
+data class PlannerEventExportData(
+    val title: String,
+    val description: String,
+    val timeInMillis: Long,
+    val locationName: String,
+    val isDone: Boolean
+)
+// -------------------------------------
 
 object ExportUtils {
 
-    // Funkcja zamienia obiekt TripExportData na String JSON
     fun tripToJson(data: TripExportData): String {
         return Gson().toJson(data)
     }
 
-    // Funkcja zamienia String JSON na obiekt TripExportData
     fun jsonToTrip(json: String): TripExportData? {
         return try {
             val type = object : TypeToken<TripExportData>() {}.type
@@ -56,7 +63,6 @@ object ExportUtils {
         }
     }
 
-    // Odczyt z URI (do importu)
     fun readJsonFromUri(context: Context, uri: Uri): String? {
         return try {
             val inputStream = context.contentResolver.openInputStream(uri)

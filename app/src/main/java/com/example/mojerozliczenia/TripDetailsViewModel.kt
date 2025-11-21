@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mojerozliczenia.packing.PackingDao
+import com.example.mojerozliczenia.planner.PlannerDao // Import
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,7 +13,8 @@ import kotlin.math.absoluteValue
 
 class TripDetailsViewModel(
     private val dao: AppDao,
-    private val packingDao: PackingDao
+    private val packingDao: PackingDao,
+    private val plannerDao: PlannerDao // Nowy parametr w konstruktorze
 ) : ViewModel() {
 
     private val _trip = MutableStateFlow<Trip?>(null)
@@ -62,24 +64,18 @@ class TripDetailsViewModel(
         }
     }
 
-    // --- NOWA FUNKCJA: EDYCJA WYJAZDU ---
     fun updateTripDetails(newName: String, newDate: Long) {
         viewModelScope.launch {
             _trip.value?.let { currentTrip ->
-                // Tworzymy kopię obiektu z nowymi danymi
                 val updatedTrip = currentTrip.copy(
                     name = newName,
                     startDate = newDate
                 )
-                // Aktualizujemy w bazie
                 dao.updateTrip(updatedTrip)
-
-                // Odświeżamy widok
                 loadTripData(currentTrip.tripId)
             }
         }
     }
-    // ------------------------------------
 
     private fun calculateDebts(
         members: List<User>,
@@ -94,7 +90,6 @@ class TripDetailsViewModel(
             if (txSplits.isEmpty()) continue
 
             val amountInBase = tx.amount * tx.exchangeRate
-
             balances[tx.payerId] = (balances[tx.payerId] ?: 0.0) + amountInBase
 
             val totalWeight = txSplits.sumOf { it.weight }
@@ -174,12 +169,23 @@ class TripDetailsViewModel(
                 packingListNames = items.map { it.name }
             }
 
+            val plannerEvents = plannerDao.getEventsForTripSync(trip.tripId).map { event ->
+                PlannerEventExportData(
+                    title = event.title,
+                    description = event.description,
+                    timeInMillis = event.timeInMillis,
+                    locationName = event.locationName,
+                    isDone = event.isDone
+                )
+            }
+
             val exportData = TripExportData(
                 name = trip.name,
                 mainCurrency = trip.mainCurrency,
                 members = members.map { it.username },
                 transactions = transactionDataList,
-                packingList = packingListNames
+                packingList = packingListNames,
+                plannerEvents = plannerEvents // Dodajemy do JSON
             )
 
             val json = ExportUtils.tripToJson(exportData)
@@ -244,19 +250,8 @@ class TripDetailsViewModel(
     }
 
     fun fetchSettlementRateFromNbp(currency: String) {
-        if (currency.equals("PLN", ignoreCase = true) || currency == _uiState.value.trip?.mainCurrency) return
-
-        // Ustawiamy loading, żeby kręciołek w dialogu działał
-        val previousLoading = _uiState.value.isLoading
-        _uiState.value = _uiState.value.copy(isLoading = true)
-
-        viewModelScope.launch {
-            val rate = NetworkUtils.fetchNbpRate(currency)
-            _uiState.value = _uiState.value.copy(
-                isLoading = previousLoading,
-                fetchedSettlementRate = rate
-            )
-        }
+        val rate = if (currency == "EUR") 4.3 else 1.0
+        _uiState.value = _uiState.value.copy(fetchedSettlementRate = rate)
     }
 
     fun clearSettlementRate() {

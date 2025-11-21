@@ -9,7 +9,9 @@ import androidx.room.TypeConverters
 // Importy
 import com.example.mojerozliczenia.packing.PackingItem
 import com.example.mojerozliczenia.packing.PackingDao
-import com.example.mojerozliczenia.Converters
+// NOWE IMPORTY PLANERA
+import com.example.mojerozliczenia.planner.PlannerEvent
+import com.example.mojerozliczenia.planner.PlannerDao
 
 @Database(
     entities = [
@@ -19,9 +21,10 @@ import com.example.mojerozliczenia.Converters
         ExchangeRate::class,
         Transaction::class,
         TransactionSplit::class,
-        PackingItem::class
+        PackingItem::class,
+        PlannerEvent::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -29,6 +32,7 @@ abstract class AppDatabase : RoomDatabase() {
 
     abstract fun appDao(): AppDao
     abstract fun packingDao(): PackingDao
+    abstract fun plannerDao(): PlannerDao
 
     companion object {
         @Volatile
