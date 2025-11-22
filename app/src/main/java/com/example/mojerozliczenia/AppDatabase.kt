@@ -21,10 +21,10 @@ import com.example.mojerozliczenia.planner.PlannerDao
         ExchangeRate::class,
         Transaction::class,
         TransactionSplit::class,
+        PlannerEvent::class,
         PackingItem::class,
-        PlannerEvent::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

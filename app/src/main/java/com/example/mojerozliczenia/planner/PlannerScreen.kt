@@ -4,7 +4,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.widget.DatePicker
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable // Dodano import
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -75,7 +75,6 @@ fun PlannerScreen(
         if (events.isEmpty()) {
             EmptyPlannerState(padding)
         } else {
-            // Oś czasu (Timeline)
             LazyColumn(
                 modifier = Modifier
                     .padding(padding)
@@ -99,7 +98,8 @@ fun PlannerScreen(
             AddEventDialog(
                 onDismiss = { showAddDialog = false },
                 onConfirm = { title, desc, loc, time ->
-                    viewModel.addEvent(tripId, title, desc, loc, time)
+                    // ZMIANA: Przekazujemy context
+                    viewModel.addEvent(context, tripId, title, desc, loc, time)
                     showAddDialog = false
                 }
             )
@@ -157,7 +157,6 @@ fun TimelineEventItem(
     val nodeColor = if (event.isDone) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary
 
     IntrinsicHeightRow(modifier = Modifier.fillMaxWidth()) {
-        // --- KOLUMNA LEWA: CZAS ---
         Column(
             horizontalAlignment = Alignment.End,
             modifier = Modifier
@@ -178,7 +177,6 @@ fun TimelineEventItem(
             )
         }
 
-        // --- KOLUMNA ŚRODKOWA: LINIA I WĘZEŁ ---
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.width(24.dp)
@@ -204,7 +202,6 @@ fun TimelineEventItem(
             }
         }
 
-        // --- KOLUMNA PRAWA: KARTA ZDARZENIA ---
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -261,7 +258,6 @@ fun TimelineEventItem(
 
                     if (event.locationName.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(12.dp))
-                        // Usunięto border, używamy domyślnego stylu
                         AssistChip(
                             onClick = onNavigate,
                             label = {
@@ -369,7 +365,6 @@ fun AddEventDialog(
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // POPRAWKA: Używamy modifier.clickable zamiast onClick
                 OutlinedCard(
                     modifier = Modifier
                         .fillMaxWidth()
