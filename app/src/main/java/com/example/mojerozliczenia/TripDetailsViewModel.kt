@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mojerozliczenia.packing.PackingDao
-import com.example.mojerozliczenia.planner.PlannerDao // Import
+import com.example.mojerozliczenia.planner.PlannerDao
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,7 +14,7 @@ import kotlin.math.absoluteValue
 class TripDetailsViewModel(
     private val dao: AppDao,
     private val packingDao: PackingDao,
-    private val plannerDao: PlannerDao // Nowy parametr w konstruktorze
+    private val plannerDao: PlannerDao
 ) : ViewModel() {
 
     private val _trip = MutableStateFlow<Trip?>(null)
@@ -35,6 +35,8 @@ class TripDetailsViewModel(
             val splits = dao.getSplitsForTrip(tripId)
 
             val expenses = transactions.filter { !it.isRepayment }
+
+            // Całkowite wydatki w walucie bazowej (do ogólnego podsumowania)
             val totalSpent = expenses.sumOf { it.amount * it.exchangeRate }
 
             val categoryStats = expenses
@@ -49,6 +51,7 @@ class TripDetailsViewModel(
                     entry.value.sumOf { it.amount }
                 }
 
+            // NOWA LOGIKA: Obliczanie długów z podziałem na waluty
             val debts = calculateDebts(members, transactions, splits)
 
             _uiState.value = TripDetailsUiState(
@@ -82,56 +85,66 @@ class TripDetailsViewModel(
         transactions: List<Transaction>,
         splits: List<TransactionSplit>
     ): List<Debt> {
-        val balances = mutableMapOf<Long, Double>()
-        members.forEach { balances[it.userId] = 0.0 }
+        val allDebts = mutableListOf<Debt>()
 
-        for (tx in transactions) {
-            val txSplits = splits.filter { it.transactionId == tx.transactionId }
-            if (txSplits.isEmpty()) continue
+        // 1. Grupowanie transakcji według waluty
+        val transactionsByCurrency = transactions.groupBy { it.currency }
 
-            val amountInBase = tx.amount * tx.exchangeRate
-            balances[tx.payerId] = (balances[tx.payerId] ?: 0.0) + amountInBase
+        transactionsByCurrency.forEach { (currency, txsInCurrency) ->
+            val balances = mutableMapOf<Long, Double>()
+            members.forEach { balances[it.userId] = 0.0 }
 
-            val totalWeight = txSplits.sumOf { it.weight }
-            if (totalWeight == 0.0) continue
+            // 2. Obliczanie salda dla danej waluty (bez przeliczania kursów)
+            for (tx in txsInCurrency) {
+                val txSplits = splits.filter { it.transactionId == tx.transactionId }
+                if (txSplits.isEmpty()) continue
 
-            for (split in txSplits) {
-                val share = amountInBase * (split.weight / totalWeight)
-                balances[split.beneficiaryId] = (balances[split.beneficiaryId] ?: 0.0) - share
+                val amount = tx.amount
+                balances[tx.payerId] = (balances[tx.payerId] ?: 0.0) + amount
+
+                val totalWeight = txSplits.sumOf { it.weight }
+                if (totalWeight == 0.0) continue
+
+                for (split in txSplits) {
+                    val share = amount * (split.weight / totalWeight)
+                    balances[split.beneficiaryId] = (balances[split.beneficiaryId] ?: 0.0) - share
+                }
+            }
+
+            // 3. Rozliczanie długów wewnątrz tej konkretnej waluty
+            val debtors = balances.filter { it.value < -0.01 }.keys.toMutableList()
+            val creditors = balances.filter { it.value > 0.01 }.keys.toMutableList()
+
+            debtors.sortBy { balances[it] }
+            creditors.sortByDescending { balances[it] }
+
+            var i = 0
+            var j = 0
+            val currentBalances = balances.toMutableMap()
+
+            while (i < debtors.size && j < creditors.size) {
+                val debtorId = debtors[i]
+                val creditorId = creditors[j]
+
+                val debtAmount = (currentBalances[debtorId] ?: 0.0).absoluteValue
+                val creditAmount = currentBalances[creditorId] ?: 0.0
+
+                val settledAmount = minOf(debtAmount, creditAmount)
+
+                if (debtorId != creditorId && settledAmount > 0.01) {
+                    // Dodajemy dług z informacją o walucie
+                    allDebts.add(Debt(debtorId, creditorId, settledAmount, currency))
+                }
+
+                currentBalances[debtorId] = (currentBalances[debtorId] ?: 0.0) + settledAmount
+                currentBalances[creditorId] = (currentBalances[creditorId] ?: 0.0) - settledAmount
+
+                if ((currentBalances[debtorId] ?: 0.0).absoluteValue < 0.01) i++
+                if ((currentBalances[creditorId] ?: 0.0) < 0.01) j++
             }
         }
 
-        val debtors = balances.filter { it.value < -0.01 }.keys.toMutableList()
-        val creditors = balances.filter { it.value > 0.01 }.keys.toMutableList()
-        val debtsList = mutableListOf<Debt>()
-
-        debtors.sortBy { balances[it] }
-        creditors.sortByDescending { balances[it] }
-
-        var i = 0
-        var j = 0
-
-        while (i < debtors.size && j < creditors.size) {
-            val debtorId = debtors[i]
-            val creditorId = creditors[j]
-
-            val debtAmount = (balances[debtorId] ?: 0.0).absoluteValue
-            val creditAmount = balances[creditorId] ?: 0.0
-
-            val settledAmount = minOf(debtAmount, creditAmount)
-
-            if (debtorId != creditorId && settledAmount > 0.01) {
-                debtsList.add(Debt(debtorId, creditorId, settledAmount))
-            }
-
-            balances[debtorId] = (balances[debtorId] ?: 0.0) + settledAmount
-            balances[creditorId] = (balances[creditorId] ?: 0.0) - settledAmount
-
-            if ((balances[debtorId] ?: 0.0).absoluteValue < 0.01) i++
-            if ((balances[creditorId] ?: 0.0) < 0.01) j++
-        }
-
-        return debtsList
+        return allDebts
     }
 
     fun exportTripToJson(
@@ -185,7 +198,7 @@ class TripDetailsViewModel(
                 members = members.map { it.username },
                 transactions = transactionDataList,
                 packingList = packingListNames,
-                plannerEvents = plannerEvents // Dodajemy do JSON
+                plannerEvents = plannerEvents
             )
 
             val json = ExportUtils.tripToJson(exportData)
@@ -196,7 +209,7 @@ class TripDetailsViewModel(
     fun generateShareReport(): String {
         val tripName = _trip.value?.name ?: "Wyjazd"
         val total = String.format("%.2f", _uiState.value.totalSpent)
-        return "Raport z wyjazdu '$tripName'.\nŁącznie wydano: $total PLN.\n\nSprawdź szczegóły w aplikacji Moje Rozliczenia!"
+        return "Raport z wyjazdu '$tripName'.\nŁącznie wydano (w walucie bazowej): $total.\n\nSprawdź szczegóły w aplikacji Moje Rozliczenia!"
     }
 
     fun deleteTransaction(transaction: Transaction) {
@@ -237,7 +250,7 @@ class TripDetailsViewModel(
                     payerId = fromId,
                     amount = amount,
                     currency = currency,
-                    description = "Spłata długu",
+                    description = "Spłata długu ($currency)",
                     category = "Inne",
                     exchangeRate = rate,
                     isRepayment = true
@@ -249,9 +262,32 @@ class TripDetailsViewModel(
         }
     }
 
-    fun fetchSettlementRateFromNbp(currency: String) {
-        val rate = if (currency == "EUR") 4.3 else 1.0
-        _uiState.value = _uiState.value.copy(fetchedSettlementRate = rate)
+    fun fetchSettlementRateFromNbp(fromCurrency: String, toCurrency: String) {
+        viewModelScope.launch {
+            val normalizedFrom = fromCurrency.uppercase()
+            val normalizedTo = toCurrency.uppercase()
+            if (normalizedFrom == normalizedTo) {
+                _uiState.value = _uiState.value.copy(fetchedSettlementRate = 1.0)
+                return@launch
+            }
+
+            val fromRateToPln = fetchRateToPln(normalizedFrom)
+            val toRateToPln = fetchRateToPln(normalizedTo)
+            val rate = if (fromRateToPln != null && toRateToPln != null && toRateToPln != 0.0) {
+                fromRateToPln / toRateToPln
+            } else {
+                null
+            }
+            _uiState.value = _uiState.value.copy(fetchedSettlementRate = rate)
+        }
+    }
+
+    private suspend fun fetchRateToPln(currency: String): Double? {
+        return if (currency.equals("PLN", ignoreCase = true)) {
+            1.0
+        } else {
+            NetworkUtils.fetchNbpRate(currency)
+        }
     }
 
     fun clearSettlementRate() {

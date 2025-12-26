@@ -6,7 +6,10 @@ import kotlin.math.round
 
 object BalanceUtils {
 
-    // Saldo ujemne = dłużnik, Saldo dodatnie = nadpłacający
+    /**
+     * Oblicza salda użytkowników dla listy transakcji w jednej, konkretnej walucie.
+     * Nie używamy tutaj exchangeRate, ponieważ liczymy dług w walucie oryginalnej.
+     */
     fun calculateBalances(
         transactions: List<Transaction>,
         splits: List<TransactionSplit>
@@ -15,45 +18,68 @@ object BalanceUtils {
         val splitsByTx = splits.groupBy { it.transactionId }
 
         transactions.forEach { tx ->
-            // Przeliczamy na walutę główną
-            val normalizedAmount = tx.amount * tx.exchangeRate
+            // Pobieramy kwotę w oryginalnej walucie (np. 10.00 EUR)
+            val amount = tx.amount
 
-            // Płatnik zyskuje (zapłacił za grupę)
-            balances[tx.payerId] = balances.getOrDefault(tx.payerId, 0.0) + normalizedAmount
+            // Płatnik (payer) dostaje "plus" - tyle założył za innych
+            balances[tx.payerId] = balances.getOrDefault(tx.payerId, 0.0) + amount
 
             val txSplits = splitsByTx[tx.transactionId] ?: emptyList()
             if (txSplits.isNotEmpty()) {
-                val splitAmount = normalizedAmount / txSplits.size
-                txSplits.forEach { split ->
-                    // Beneficjent traci (skonsumował)
-                    balances[split.beneficiaryId] = balances.getOrDefault(split.beneficiaryId, 0.0) - splitAmount
+                val totalWeight = txSplits.sumOf { it.weight }
+
+                if (totalWeight > 0) {
+                    txSplits.forEach { split ->
+                        // Beneficjent dostaje "minus" - tyle skonsumował i jest winien
+                        val share = amount * (split.weight / totalWeight)
+                        balances[split.beneficiaryId] =
+                            balances.getOrDefault(split.beneficiaryId, 0.0) - share
+                    }
                 }
             }
         }
         return balances
     }
 
-    // Obliczanie długów (korzysta z powyższej funkcji)
+    /**
+     * Oblicza plan spłat (kto komu ile) dla konkretnej waluty.
+     */
     fun calculateDebts(
         transactions: List<Transaction>,
-        splits: List<TransactionSplit>
+        splits: List<TransactionSplit>,
+        currency: String // Parametr wymagany przez nową klasę Debt
     ): List<Debt> {
+        // Obliczamy salda netto (kto jest na plusie, kto na minusie)
         val balances = calculateBalances(transactions, splits).toMutableMap()
 
-        // Minimalizacja długów
         val debts = mutableListOf<Debt>()
+
+        // Filtrujemy dłużników (minus) i wierzycieli (plus)
         val debtors = balances.filter { it.value < -0.01 }.toMutableMap()
         val creditors = balances.filter { it.value > 0.01 }.toMutableMap()
 
+        // Algorytm minimalizacji liczby transakcji
         while (debtors.isNotEmpty() && creditors.isNotEmpty()) {
             val debtor = debtors.entries.first()
             val creditor = creditors.entries.first()
-            val amount = min(abs(debtor.value), creditor.value)
 
-            debts.add(Debt(debtor.key, creditor.key, round(amount * 100) / 100.0))
+            // Kwota spłaty to minimum z długu dłużnika i nadpłaty wierzyciela
+            val amountToSettle = min(abs(debtor.value), creditor.value)
 
-            val newDebtorVal = debtor.value + amount
-            val newCreditorVal = creditor.value - amount
+            if (amountToSettle > 0.01) {
+                debts.add(
+                    Debt(
+                        fromUserId = debtor.key,
+                        toUserId = creditor.key,
+                        amount = round(amountToSettle * 100) / 100.0,
+                        currency = currency // Przekazujemy walutę do obiektu długu
+                    )
+                )
+            }
+
+            // Aktualizujemy salda w mapach tymczasowych
+            val newDebtorVal = debtor.value + amountToSettle
+            val newCreditorVal = creditor.value - amountToSettle
 
             if (abs(newDebtorVal) < 0.01) debtors.remove(debtor.key) else debtors[debtor.key] = newDebtorVal
             if (abs(newCreditorVal) < 0.01) creditors.remove(creditor.key) else creditors[creditor.key] = newCreditorVal

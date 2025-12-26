@@ -28,10 +28,12 @@ enum class ExpenseCategory(val label: String, val icon: ImageVector) {
 }
 
 // --- 2. KLASA DEBT ---
+// --- 2. KLASA DEBT ---
 data class Debt(
     val fromUserId: Long,
     val toUserId: Long,
-    val amount: Double
+    val amount: Double,
+    val currency: String // <--- DODAJ TO POLE
 )
 
 // --- 3. LOGO UTILS (TERAZ Z LOGIKĄ POBIERANIA IKON) ---
@@ -105,7 +107,7 @@ object LogoUtils {
         }
 
         // Zwracamy URL do logo z serwisu Clearbit (darmowe API do logotypów)
-        return domain?.let { "https://logo.clearbit.com/$it" }
+        return domain?.let { "https://www.google.com/s2/favicons?sz=128&domain=$it" }
     }
 }
 
