@@ -271,6 +271,15 @@ fun FlightSearchScreen(viewModel: FlightViewModel, onBack: () -> Unit) {
                         if (state.flights.isEmpty()) {
                             Text("Brak lotów dla wybranych kryteriów.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
                         } else {
+                            if (state.isCached) {
+                                Text(
+                                    text = "Showing cached results.",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
                             FlightList(flights = state.flights)
                         }
                     }
