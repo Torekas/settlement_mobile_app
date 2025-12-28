@@ -1,5 +1,6 @@
 package com.example.mojerozliczenia.flights
 
+import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -35,9 +36,22 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.mojerozliczenia.BuildConfig
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private const val PREFS_NAME = "flight_search_limits"
+private const val KEY_DATE = "search_date"
+private const val KEY_COUNT = "search_count"
+private const val KEY_UNLIMITED = "search_unlimited"
+private const val DAILY_LIMIT = 2
 
 class FlightSearchActivity : ComponentActivity() {
     private val viewModel by viewModels<FlightViewModel>()
@@ -56,8 +70,55 @@ class FlightSearchActivity : ComponentActivity() {
 @Composable
 fun FlightSearchScreen(viewModel: FlightViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+    var isUnlimitedUnlocked by remember { mutableStateOf(prefs.getBoolean(KEY_UNLIMITED, false)) }
+    var showUnlockDialog by remember { mutableStateOf(false) }
+    var passwordInput by remember { mutableStateOf("") }
+    val dateFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
     var origin by remember { mutableStateOf("Warszawa") }
     var destination by remember { mutableStateOf("Paryż") }
+
+    fun canSearchAndConsume(): Boolean {
+        if (isUnlimitedUnlocked) {
+            return true
+        }
+        val today = dateFormatter.format(Date())
+        val storedDate = prefs.getString(KEY_DATE, null)
+        var count = prefs.getInt(KEY_COUNT, 0)
+        val editor = prefs.edit()
+        if (storedDate != today) {
+            count = 0
+            editor.putString(KEY_DATE, today)
+        }
+        return if (count >= DAILY_LIMIT) {
+            editor.apply()
+            false
+        } else {
+            editor.putInt(KEY_COUNT, count + 1).apply()
+            true
+        }
+    }
+
+    fun tryUnlock() {
+        val configuredPassword = BuildConfig.FLIGHT_UNLOCK_PASSWORD
+        if (configuredPassword.isBlank() || configuredPassword == "CHANGE_ME") {
+            Toast.makeText(
+                context,
+                "Unlock password not configured. Set flight.unlock.password in local.properties.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        if (passwordInput == configuredPassword) {
+            prefs.edit().putBoolean(KEY_UNLIMITED, true).apply()
+            isUnlimitedUnlocked = true
+            passwordInput = ""
+            showUnlockDialog = false
+            Toast.makeText(context, "Unlimited search unlocked.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Incorrect password.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     DisposableEffect(Unit) {
         val detector = ShakeDetector(context) {
@@ -136,9 +197,18 @@ fun FlightSearchScreen(viewModel: FlightViewModel, onBack: () -> Unit) {
                     Button(
                         onClick = {
                             if (selectedDate.isNotEmpty()) {
-                                val originCode = FlightUtils.getCode(origin)
-                                val destCode = FlightUtils.getCode(destination)
-                                viewModel.searchForFlights(originCode, destCode, selectedDate)
+                                if (canSearchAndConsume()) {
+                                    val originCode = FlightUtils.getCode(origin)
+                                    val destCode = FlightUtils.getCode(destination)
+                                    viewModel.searchForFlights(originCode, destCode, selectedDate)
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Daily limit reached. Enter unlock password for unlimited searches.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    showUnlockDialog = true
+                                }
                             } else {
                                 Toast.makeText(context, "Wybierz datę!", Toast.LENGTH_SHORT).show()
                             }
@@ -149,6 +219,15 @@ fun FlightSearchScreen(viewModel: FlightViewModel, onBack: () -> Unit) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Znajdź połączenia")
                     }
+                }
+            }
+
+            if (!isUnlimitedUnlocked) {
+                TextButton(
+                    onClick = { showUnlockDialog = true },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Unlock unlimited")
                 }
             }
 
@@ -206,6 +285,39 @@ fun FlightSearchScreen(viewModel: FlightViewModel, onBack: () -> Unit) {
             onDismissRequest = { showDatePicker = false },
             confirmButton = { TextButton(onClick = { showDatePicker = false }) { Text("OK") } }
         ) { DatePicker(state = datePickerState) }
+    }
+
+    if (showUnlockDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showUnlockDialog = false
+                passwordInput = ""
+            },
+            title = { Text("Unlock unlimited search") },
+            text = {
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { tryUnlock() }) {
+                    Text("Unlock")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showUnlockDialog = false
+                    passwordInput = ""
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
