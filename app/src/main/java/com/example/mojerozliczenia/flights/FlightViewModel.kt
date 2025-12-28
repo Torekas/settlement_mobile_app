@@ -11,8 +11,8 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-const val API_KEY = "2TJ1vgu6VACjcpqHYEV9XczN0eJGw8sw"
-const val API_SECRET = "IidjORTjqSme8n3Z"
+const val API_KEY = "api-key"
+const val API_SECRET = "api-secret"
 
 private const val FLIGHT_CACHE_PREFS = "flight_cache"
 private const val FLIGHT_CACHE_KEY = "recent_searches"
