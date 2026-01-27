@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mojerozliczenia.packing.PackingDao
 import com.example.mojerozliczenia.planner.PlannerDao
+import com.example.mojerozliczenia.sync.SyncClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,7 +15,8 @@ import kotlin.math.absoluteValue
 class TripDetailsViewModel(
     private val dao: AppDao,
     private val packingDao: PackingDao,
-    private val plannerDao: PlannerDao
+    private val plannerDao: PlannerDao,
+    private val sessionManager: SessionManager
 ) : ViewModel() {
 
     private val _trip = MutableStateFlow<Trip?>(null)
@@ -36,7 +38,7 @@ class TripDetailsViewModel(
 
             val expenses = transactions.filter { !it.isRepayment }
 
-            // Całkowite wydatki w walucie bazowej (do ogólnego podsumowania)
+            // Calkowite wydatki w walucie bazowej (do ogolnego podsumowania)
             val totalSpent = expenses.sumOf { it.amount * it.exchangeRate }
 
             val categoryStats = expenses
@@ -51,7 +53,7 @@ class TripDetailsViewModel(
                     entry.value.sumOf { it.amount }
                 }
 
-            // NOWA LOGIKA: Obliczanie długów z podziałem na waluty
+            // NOWA LOGIKA: Obliczanie dlugow z podzialem na waluty
             val debts = calculateDebts(members, transactions, splits)
 
             _uiState.value = TripDetailsUiState(
@@ -70,9 +72,12 @@ class TripDetailsViewModel(
     fun updateTripDetails(newName: String, newDate: Long) {
         viewModelScope.launch {
             _trip.value?.let { currentTrip ->
+                val now = System.currentTimeMillis()
                 val updatedTrip = currentTrip.copy(
                     name = newName,
-                    startDate = newDate
+                    startDate = newDate,
+                    updatedAt = now,
+                    syncState = SyncState.forUpdate(currentTrip.syncState)
                 )
                 dao.updateTrip(updatedTrip)
                 loadTripData(currentTrip.tripId)
@@ -87,14 +92,14 @@ class TripDetailsViewModel(
     ): List<Debt> {
         val allDebts = mutableListOf<Debt>()
 
-        // 1. Grupowanie transakcji według waluty
+        // 1. Grupowanie transakcji wedlug waluty
         val transactionsByCurrency = transactions.groupBy { it.currency }
 
         transactionsByCurrency.forEach { (currency, txsInCurrency) ->
             val balances = mutableMapOf<Long, Double>()
             members.forEach { balances[it.userId] = 0.0 }
 
-            // 2. Obliczanie salda dla danej waluty (bez przeliczania kursów)
+            // 2. Obliczanie salda dla danej waluty (bez przeliczania kursow)
             for (tx in txsInCurrency) {
                 val txSplits = splits.filter { it.transactionId == tx.transactionId }
                 if (txSplits.isEmpty()) continue
@@ -111,7 +116,7 @@ class TripDetailsViewModel(
                 }
             }
 
-            // 3. Rozliczanie długów wewnątrz tej konkretnej waluty
+            // 3. Rozliczanie dlugow wewnatrz tej konkretnej waluty
             val debtors = balances.filter { it.value < -0.01 }.keys.toMutableList()
             val creditors = balances.filter { it.value > 0.01 }.keys.toMutableList()
 
@@ -132,7 +137,7 @@ class TripDetailsViewModel(
                 val settledAmount = minOf(debtAmount, creditAmount)
 
                 if (debtorId != creditorId && settledAmount > 0.01) {
-                    // Dodajemy dług z informacją o walucie
+                    // Dodajemy dlug z informacja o walucie
                     allDebts.add(Debt(debtorId, creditorId, settledAmount, currency))
                 }
 
@@ -209,12 +214,13 @@ class TripDetailsViewModel(
     fun generateShareReport(): String {
         val tripName = _trip.value?.name ?: "Wyjazd"
         val total = String.format("%.2f", _uiState.value.totalSpent)
-        return "Raport z wyjazdu '$tripName'.\nŁącznie wydano (w walucie bazowej): $total.\n\nSprawdź szczegóły w aplikacji Moje Rozliczenia!"
+        return "Raport z wyjazdu '$tripName'.\nLacznie wydano (w walucie bazowej): $total.\n\nSprawdz szczegoly w aplikacji Moje Rozliczenia!"
     }
 
     fun deleteTransaction(transaction: Transaction) {
         viewModelScope.launch {
-            dao.deleteTransactionById(transaction.transactionId)
+            val now = System.currentTimeMillis()
+            dao.markTransactionDeleted(transaction.transactionId, now, SyncState.PENDING_DELETE)
             dao.deleteSplitsByTransactionId(transaction.transactionId)
             loadTripData(transaction.tripId)
         }
@@ -231,11 +237,74 @@ class TripDetailsViewModel(
     fun addMember(name: String) {
         viewModelScope.launch {
             _trip.value?.let { trip ->
-                val user = dao.getUserByName(name) ?: run {
-                    val newId = dao.insertUser(User(username = name, passwordHash = ""))
-                    User(userId = newId, username = name, passwordHash = "")
+                val now = System.currentTimeMillis()
+                val normalized = name.trim()
+                if (normalized.isBlank()) {
+                    setAddMemberDialogVisibility(false)
+                    return@launch
                 }
-                dao.insertTripMember(TripMember(tripId = trip.tripId, userId = user.userId))
+
+                var resolvedUser: User? = null
+
+                if (SyncClient.isConfigured()) {
+                    val token = sessionManager.fetchAuthToken()
+                    val authHeader = if (token.isNullOrBlank()) null else "Bearer $token"
+                    try {
+                        val response = SyncClient.createUsersApi().findUser(authHeader, normalized)
+                        val existingBySync = dao.getUserBySyncId(response.userSyncId)
+                        resolvedUser = existingBySync ?: run {
+                            val newId = dao.insertUser(
+                                User(
+                                    syncId = response.userSyncId,
+                                    username = response.username,
+                                    passwordHash = "",
+                                    updatedAt = now,
+                                    syncState = SyncState.SYNCED
+                                )
+                            )
+                            User(
+                                userId = newId,
+                                syncId = response.userSyncId,
+                                username = response.username,
+                                passwordHash = "",
+                                updatedAt = now,
+                                syncState = SyncState.SYNCED
+                            )
+                        }
+                    } catch (_: Exception) {
+                        // fallback to local lookup
+                    }
+                }
+
+                if (resolvedUser == null) {
+                    val user = dao.getUserByName(normalized) ?: run {
+                        val newId = dao.insertUser(
+                            User(
+                                username = normalized,
+                                passwordHash = "",
+                                updatedAt = now,
+                                syncState = SyncState.PENDING_CREATE
+                            )
+                        )
+                        User(
+                            userId = newId,
+                            username = normalized,
+                            passwordHash = "",
+                            updatedAt = now,
+                            syncState = SyncState.PENDING_CREATE
+                        )
+                    }
+                    resolvedUser = user
+                }
+
+                dao.insertTripMember(
+                    TripMember(
+                        tripId = trip.tripId,
+                        userId = resolvedUser.userId,
+                        updatedAt = now,
+                        syncState = SyncState.PENDING_CREATE
+                    )
+                )
                 loadTripData(trip.tripId)
             }
             setAddMemberDialogVisibility(false)
@@ -245,15 +314,18 @@ class TripDetailsViewModel(
     fun settleDebt(fromId: Long, toId: Long, amount: Double, currency: String, rate: Double) {
         viewModelScope.launch {
             _trip.value?.let { trip ->
+                val now = System.currentTimeMillis()
                 val newTx = Transaction(
                     tripId = trip.tripId,
                     payerId = fromId,
                     amount = amount,
                     currency = currency,
-                    description = "Spłata długu ($currency)",
+                    description = "Splata dlugu ($currency)",
                     category = "Inne",
                     exchangeRate = rate,
-                    isRepayment = true
+                    isRepayment = true,
+                    updatedAt = now,
+                    syncState = SyncState.PENDING_CREATE
                 )
                 val txId = dao.insertTransaction(newTx)
                 dao.insertTransactionSplit(TransactionSplit(transactionId = txId, beneficiaryId = toId, weight = 1.0))
@@ -297,7 +369,8 @@ class TripDetailsViewModel(
     fun removeMember(userId: Long) {
         viewModelScope.launch {
             _trip.value?.let { trip ->
-                dao.removeMemberFromTrip(trip.tripId, userId)
+                val now = System.currentTimeMillis()
+                dao.markTripMemberDeleted(trip.tripId, userId, now, SyncState.PENDING_DELETE)
                 loadTripData(trip.tripId)
             }
         }

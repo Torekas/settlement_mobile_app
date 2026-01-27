@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +31,7 @@ import coil.compose.AsyncImage
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.mojerozliczenia.sync.SyncScheduler
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,7 +41,7 @@ fun TripListScreen(
     onLogout: () -> Unit,
     onTripClick: (Long) -> Unit
 ) {
-    val trips by viewModel.allTrips.collectAsState(initial = emptyList())
+    val trips by viewModel.getTripsForUser(userId).collectAsState(initial = emptyList())
     val context = LocalContext.current
 
     var showAddDialog by remember { mutableStateOf(false) }
@@ -52,13 +54,13 @@ fun TripListScreen(
             try {
                 val json = ExportUtils.readJsonFromUri(context, it)
                 if (json != null) {
-                    viewModel.importTrip(json)
-                    Toast.makeText(context, "Rozpoczęto importowanie...", Toast.LENGTH_SHORT).show()
+                    viewModel.importTrip(json, userId)
+                    Toast.makeText(context, "Rozpoczeto importowanie...", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "Błąd odczytu pliku", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Blad odczytu pliku", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Błąd: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Blad: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -73,6 +75,13 @@ fun TripListScreen(
                     )
                 },
                 actions = {
+                    IconButton(onClick = {
+                        SyncScheduler.enqueueOneTime(context)
+                        Toast.makeText(context, "Sync uruchomiony", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.Sync, contentDescription = "Sync teraz")
+                    }
+
                     IconButton(onClick = {
                         importLauncher.launch(arrayOf("application/json"))
                     }) {
@@ -119,7 +128,7 @@ fun TripListScreen(
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         Column {
-                            // Zdjęcie
+                            // Zdjecie
                             Box(modifier = Modifier.height(150.dp).fillMaxWidth()) {
                                 if (trip.imageUrl != null) {
                                     AsyncImage(
@@ -168,15 +177,15 @@ fun TripListScreen(
                             }
                         }
 
-                        // --- IKONA CHMURKI (JEŚLI IMPORTOWANY) ---
-                        // Wyświetlamy w lewym górnym rogu
+                        // --- IKONA CHMURKI (JESLI IMPORTOWANY) ---
+                        // Wyswietlamy w lewym gornym rogu
                         if (trip.isImported) {
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.TopStart)
                                     .padding(8.dp)
                                     .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                                    .padding(6.dp) // Padding wewnątrz kółka
+                                    .padding(6.dp) // Padding wewnatrz kolka
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Cloud,
@@ -188,7 +197,7 @@ fun TripListScreen(
                         }
                         // -----------------------------------------
 
-                        // Przycisk usuwania (Prawy górny róg)
+                        // Przycisk usuwania (Prawy gorny rog)
                         IconButton(
                             onClick = { tripToDelete = trip },
                             modifier = Modifier
@@ -199,7 +208,7 @@ fun TripListScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
-                                contentDescription = "Usuń",
+                                contentDescription = "Usun",
                                 tint = Color.White,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -213,7 +222,7 @@ fun TripListScreen(
             AddTripDialog(
                 onDismiss = { showAddDialog = false },
                 onConfirm = { name, dateMillis ->
-                    viewModel.addTrip(context, name, dateMillis)
+                    viewModel.addTrip(context, userId, name, dateMillis)
                     showAddDialog = false
                 }
             )
@@ -222,9 +231,9 @@ fun TripListScreen(
         if (tripToDelete != null) {
             AlertDialog(
                 onDismissRequest = { tripToDelete = null },
-                title = { Text("Usunąć wyjazd?") },
+                title = { Text("Usunac wyjazd?") },
                 text = {
-                    Text("Czy na pewno chcesz usunąć wyjazd \"${tripToDelete?.name}\"?\nTej operacji nie można cofnąć.")
+                    Text("Czy na pewno chcesz usunac wyjazd \"${tripToDelete?.name}\"?\nTej operacji nie mozna cofnac.")
                 },
                 confirmButton = {
                     Button(
@@ -236,7 +245,7 @@ fun TripListScreen(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Text("Usuń")
+                        Text("Usun")
                     }
                 },
                 dismissButton = {
@@ -280,10 +289,10 @@ fun AddTripDialog(
                     value = dateString,
                     onValueChange = {},
                     readOnly = true,
-                    label = { Text("Data rozpoczęcia") },
+                    label = { Text("Data rozpoczecia") },
                     trailingIcon = {
                         IconButton(onClick = { showDatePicker = true }) {
-                            Icon(Icons.Default.DateRange, contentDescription = "Wybierz datę")
+                            Icon(Icons.Default.DateRange, contentDescription = "Wybierz date")
                         }
                     },
                     modifier = Modifier.fillMaxWidth().clickable { showDatePicker = true }

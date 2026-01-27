@@ -21,14 +21,32 @@ class TripViewModel(
     private val plannerDao: PlannerDao // Nowy parametr w konstruktorze
 ) : ViewModel() {
 
-    val allTrips: Flow<List<Trip>> = dao.getAllTrips()
+    fun getTripsForUser(userId: Long): Flow<List<Trip>> = dao.getTripsForUser(userId)
 
-    fun addTrip(context: Context, name: String, dateMillis: Long) {
+    fun addTrip(context: Context, userId: Long, name: String, dateMillis: Long) {
         if (name.isBlank()) return
         viewModelScope.launch {
             val imageUrl = generateSmartImageUrl(name)
-            val newTrip = Trip(name = name, destination = name, mainCurrency = "PLN", imageUrl = imageUrl, isImported = false, startDate = dateMillis)
+            val now = System.currentTimeMillis()
+            val newTrip = Trip(
+                name = name,
+                destination = name,
+                mainCurrency = "PLN",
+                imageUrl = imageUrl,
+                isImported = false,
+                startDate = dateMillis,
+                updatedAt = now,
+                syncState = SyncState.PENDING_CREATE
+            )
             val tripId = dao.insertTrip(newTrip)
+            dao.insertTripMember(
+                TripMember(
+                    tripId = tripId,
+                    userId = userId,
+                    updatedAt = now,
+                    syncState = SyncState.PENDING_CREATE
+                )
+            )
             scheduleNotification(context, name, dateMillis)
         }
     }
@@ -53,10 +71,11 @@ class TripViewModel(
     }
 
     // --- AKTUALIZACJA: IMPORT Z PLANEREM ---
-    fun importTrip(json: String) {
+    fun importTrip(json: String, ownerUserId: Long) {
         viewModelScope.launch {
             val data = ExportUtils.jsonToTrip(json) ?: return@launch
             val imageUrl = generateSmartImageUrl(data.name)
+            val now = System.currentTimeMillis()
 
             val newTrip = Trip(
                 name = data.name,
@@ -64,16 +83,43 @@ class TripViewModel(
                 mainCurrency = data.mainCurrency,
                 imageUrl = imageUrl,
                 isImported = true,
-                startDate = System.currentTimeMillis()
+                startDate = System.currentTimeMillis(),
+                updatedAt = now,
+                syncState = SyncState.PENDING_CREATE
             )
             val newTripId = dao.insertTrip(newTrip)
             val userMap = mutableMapOf<String, Long>()
 
             data.members.forEach { name ->
                 val existingUser = dao.getUserByName(name)
-                val userId = existingUser?.userId ?: dao.insertUser(User(username = name, passwordHash = ""))
+                val userId = existingUser?.userId ?: dao.insertUser(
+                    User(
+                        username = name,
+                        passwordHash = "",
+                        updatedAt = now,
+                        syncState = SyncState.PENDING_CREATE
+                    )
+                )
                 userMap[name] = userId
-                dao.insertTripMember(TripMember(tripId = newTripId, userId = userId))
+                dao.insertTripMember(
+                    TripMember(
+                        tripId = newTripId,
+                        userId = userId,
+                        updatedAt = now,
+                        syncState = SyncState.PENDING_CREATE
+                    )
+                )
+            }
+
+            if (!userMap.containsValue(ownerUserId)) {
+                dao.insertTripMember(
+                    TripMember(
+                        tripId = newTripId,
+                        userId = ownerUserId,
+                        updatedAt = now,
+                        syncState = SyncState.PENDING_CREATE
+                    )
+                )
             }
 
             data.transactions.forEach { txData ->
@@ -86,7 +132,9 @@ class TripViewModel(
                     description = txData.description,
                     category = txData.category,
                     exchangeRate = txData.exchangeRate,
-                    isRepayment = txData.isRepayment
+                    isRepayment = txData.isRepayment,
+                    updatedAt = now,
+                    syncState = SyncState.PENDING_CREATE
                 )
                 val newTxId = dao.insertTransaction(newTx)
 

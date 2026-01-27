@@ -22,12 +22,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 
-// Importy modułów
+// Importy modulow
 import com.example.mojerozliczenia.flights.FlightSearchActivity
 import com.example.mojerozliczenia.packing.PackingListScreen
 import com.example.mojerozliczenia.packing.PackingViewModel
 import com.example.mojerozliczenia.planner.PlannerScreen
 import com.example.mojerozliczenia.planner.PlannerViewModel
+import com.example.mojerozliczenia.sync.SyncScheduler
 
 class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,6 +36,7 @@ class MainActivity : FragmentActivity() {
 
         val db = AppDatabase.getDatabase(applicationContext)
         val sessionManager = SessionManager(applicationContext)
+        SyncScheduler.schedulePeriodic(applicationContext)
 
         val savedUserId = sessionManager.fetchUserId()
         val startDestination = if (savedUserId != -1L) "trip_list/$savedUserId" else "auth"
@@ -54,7 +56,7 @@ class MainActivity : FragmentActivity() {
 
                 // ZMIANA: Przekazujemy plannerDao do TripDetailsViewModel (do eksportu)
                 val tripDetailsViewModel = remember {
-                    TripDetailsViewModel(db.appDao(), db.packingDao(), db.plannerDao())
+                    TripDetailsViewModel(db.appDao(), db.packingDao(), db.plannerDao(), sessionManager)
                 }
 
                 val addExpenseViewModel = remember { AddExpenseViewModel(db.appDao()) }
@@ -70,7 +72,7 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
-                    // --- LISTA WYJAZDÓW ---
+                    // --- LISTA WYJAZDOW ---
                     composable(
                         "trip_list/{userId}",
                         arguments = listOf(navArgument("userId") { type = NavType.LongType })
@@ -94,9 +96,9 @@ class MainActivity : FragmentActivity() {
                                 }
                             )
 
-                            // Przycisk "Szukaj Lotów"
+                            // Przycisk "Szukaj Lotow"
                             ExtendedFloatingActionButton(
-                                text = { Text("Szukaj Lotów") },
+                                text = { Text("Szukaj Lotow") },
                                 icon = { Icon(Icons.Default.Search, contentDescription = null) },
                                 onClick = {
                                     val intent = Intent(context, FlightSearchActivity::class.java)
@@ -112,7 +114,7 @@ class MainActivity : FragmentActivity() {
                         }
                     }
 
-                    // --- SZCZEGÓŁY WYJAZDU ---
+                    // --- SZCZEGOLY WYJAZDU ---
                     composable(
                         "trip_details/{tripId}",
                         arguments = listOf(navArgument("tripId") { type = NavType.LongType })

@@ -16,6 +16,9 @@ val localProperties = Properties().apply {
 val flightUnlockPassword = (localProperties.getProperty("flight.unlock.password") ?: "CHANGE_ME")
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
+val syncBaseUrl = (localProperties.getProperty("sync.base.url") ?: "https://example.invalid/")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
 
 android {
     namespace = "com.example.mojerozliczenia"
@@ -31,6 +34,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "FLIGHT_UNLOCK_PASSWORD", "\"$flightUnlockPassword\"")
+        buildConfigField("String", "SYNC_BASE_URL", "\"$syncBaseUrl\"")
     }
 
     buildTypes {

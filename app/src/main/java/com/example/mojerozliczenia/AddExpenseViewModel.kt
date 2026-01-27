@@ -170,6 +170,7 @@ class AddExpenseViewModel(private val dao: AppDao) : ViewModel() {
         if (state.payerId == -1L || state.selectedMembers.isEmpty()) return
 
         viewModelScope.launch {
+            val now = System.currentTimeMillis()
             val transaction = Transaction(
                 tripId = tripId,
                 payerId = state.payerId,
@@ -177,7 +178,9 @@ class AddExpenseViewModel(private val dao: AppDao) : ViewModel() {
                 currency = currency,
                 description = title,
                 category = category,
-                exchangeRate = exchangeRate
+                exchangeRate = exchangeRate,
+                updatedAt = now,
+                syncState = SyncState.PENDING_CREATE
             )
             val transactionId = dao.insertTransaction(transaction)
 
