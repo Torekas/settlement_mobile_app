@@ -650,7 +650,10 @@ fun TripDetailsScreen(
         if (state.showAddMemberDialog) {
             AddMemberDialog(
                 onDismiss = { viewModel.setAddMemberDialogVisibility(false) },
-                onConfirm = { viewModel.addMember(it) })
+                onConfirm = { viewModel.addMember(it) },
+                error = state.addMemberError,
+                isLoading = state.addMemberLoading
+            )
         }
     }
 }
@@ -949,13 +952,36 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
 }
 
 @Composable
-fun AddMemberDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+fun AddMemberDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    error: String?,
+    isLoading: Boolean
+) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Dodaj uczestnika") },
-        text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Imię") }, singleLine = true) },
-        confirmButton = { Button(onClick = { onConfirm(name) }) { Text("Dodaj") } },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Imię") },
+                    singleLine = true,
+                    isError = error != null
+                )
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(name) }, enabled = !isLoading) {
+                Text(if (isLoading) "Dodawanie..." else "Dodaj")
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
     )
 }

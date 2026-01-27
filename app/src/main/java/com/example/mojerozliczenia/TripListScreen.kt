@@ -76,8 +76,8 @@ fun TripListScreen(
                 },
                 actions = {
                     IconButton(onClick = {
-                        SyncScheduler.enqueueOneTime(context)
-                        Toast.makeText(context, "Sync uruchomiony", Toast.LENGTH_SHORT).show()
+                        SyncScheduler.enqueueOneTime(context, forceFullSync = true)
+                        Toast.makeText(context, "Sync uruchomiony (pelny)", Toast.LENGTH_SHORT).show()
                     }) {
                         Icon(Icons.Default.Sync, contentDescription = "Sync teraz")
                     }

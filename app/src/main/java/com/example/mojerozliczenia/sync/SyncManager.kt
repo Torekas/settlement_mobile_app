@@ -13,11 +13,12 @@ class SyncManager(
     private val api: SyncApi,
     private val prefs: SyncPrefs
 ) {
-    suspend fun sync(userSyncId: String, authToken: String?): Boolean {
+    suspend fun sync(userSyncId: String, authToken: String?, forceFullSync: Boolean = false): Boolean {
         if (!SyncClient.isConfigured()) return true
 
         val deviceId = prefs.getDeviceId()
         val lastSyncAt = prefs.getLastSyncAt()
+        val pullSince = if (forceFullSync) 0L else lastSyncAt
         val authHeader = if (authToken.isNullOrBlank()) null else "Bearer $authToken"
 
         val dirtyUsers = dao.getDirtyUsers()
@@ -93,7 +94,7 @@ class SyncManager(
             authorization = authHeader,
             userSyncId = userSyncId,
             deviceId = deviceId,
-            since = prefs.getLastSyncAt()
+            since = pullSince
         )
 
         applyUsers(pullResponse.users)

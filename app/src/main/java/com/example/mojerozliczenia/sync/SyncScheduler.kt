@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit
 object SyncScheduler {
     private const val PERIODIC_WORK_NAME = "sync_periodic"
     private const val ONE_TIME_WORK_NAME = "sync_once"
+    private const val KEY_FORCE_FULL_SYNC = "force_full_sync"
 
     fun schedulePeriodic(context: Context) {
         val constraints = Constraints.Builder()
@@ -30,13 +31,14 @@ object SyncScheduler {
         )
     }
 
-    fun enqueueOneTime(context: Context) {
+    fun enqueueOneTime(context: Context, forceFullSync: Boolean = false) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
         val request = OneTimeWorkRequestBuilder<SyncWorker>()
             .setConstraints(constraints)
+            .setInputData(androidx.work.workDataOf(KEY_FORCE_FULL_SYNC to forceFullSync))
             .build()
 
         WorkManager.getInstance(context).enqueueUniqueWork(

@@ -231,7 +231,11 @@ class TripDetailsViewModel(
     }
 
     fun setAddMemberDialogVisibility(visible: Boolean) {
-        _uiState.value = _uiState.value.copy(showAddMemberDialog = visible)
+        _uiState.value = _uiState.value.copy(
+            showAddMemberDialog = visible,
+            addMemberError = null,
+            addMemberLoading = false
+        )
     }
 
     fun addMember(name: String) {
@@ -240,61 +244,62 @@ class TripDetailsViewModel(
                 val now = System.currentTimeMillis()
                 val normalized = name.trim()
                 if (normalized.isBlank()) {
-                    setAddMemberDialogVisibility(false)
+                    _uiState.value = _uiState.value.copy(
+                        addMemberError = "Wpisz nazwe uzytkownika",
+                        addMemberLoading = false
+                    )
                     return@launch
                 }
 
-                var resolvedUser: User? = null
+                _uiState.value = _uiState.value.copy(addMemberError = null, addMemberLoading = true)
 
-                if (SyncClient.isConfigured()) {
-                    val token = sessionManager.fetchAuthToken()
-                    val authHeader = if (token.isNullOrBlank()) null else "Bearer $token"
-                    try {
-                        val response = SyncClient.createUsersApi().findUser(authHeader, normalized)
-                        val existingBySync = dao.getUserBySyncId(response.userSyncId)
-                        resolvedUser = existingBySync ?: run {
-                            val newId = dao.insertUser(
-                                User(
-                                    syncId = response.userSyncId,
-                                    username = response.username,
-                                    passwordHash = "",
-                                    updatedAt = now,
-                                    syncState = SyncState.SYNCED
-                                )
-                            )
-                            User(
-                                userId = newId,
-                                syncId = response.userSyncId,
-                                username = response.username,
-                                passwordHash = "",
-                                updatedAt = now,
-                                syncState = SyncState.SYNCED
-                            )
-                        }
-                    } catch (_: Exception) {
-                        // fallback to local lookup
-                    }
+                if (!SyncClient.isConfigured()) {
+                    _uiState.value = _uiState.value.copy(
+                        addMemberError = "Brak polaczenia z serwerem",
+                        addMemberLoading = false
+                    )
+                    return@launch
                 }
 
-                if (resolvedUser == null) {
-                    val user = dao.getUserByName(normalized) ?: run {
-                        val newId = dao.insertUser(
-                            User(
-                                username = normalized,
-                                passwordHash = "",
-                                updatedAt = now,
-                                syncState = SyncState.PENDING_CREATE
-                            )
-                        )
+                val token = sessionManager.fetchAuthToken()
+                val authHeader = if (token.isNullOrBlank()) null else "Bearer $token"
+
+                val response = try {
+                    SyncClient.createUsersApi().findUser(authHeader, normalized)
+                } catch (exc: retrofit2.HttpException) {
+                    val message = when (exc.code()) {
+                        401, 403 -> "Zaloguj sie ponownie"
+                        404 -> "Uzytkownik nie istnieje"
+                        else -> "Blad serwera"
+                    }
+                    _uiState.value = _uiState.value.copy(addMemberError = message, addMemberLoading = false)
+                    return@launch
+                } catch (_: Exception) {
+                    _uiState.value = _uiState.value.copy(
+                        addMemberError = "Brak polaczenia z serwerem",
+                        addMemberLoading = false
+                    )
+                    return@launch
+                }
+
+                val resolvedUser = dao.getUserBySyncId(response.userSyncId) ?: run {
+                    val newId = dao.insertUser(
                         User(
-                            userId = newId,
-                            username = normalized,
+                            syncId = response.userSyncId,
+                            username = response.username,
                             passwordHash = "",
                             updatedAt = now,
-                            syncState = SyncState.PENDING_CREATE
+                            syncState = SyncState.SYNCED
                         )
-                    }
-                    resolvedUser = user
+                    )
+                    User(
+                        userId = newId,
+                        syncId = response.userSyncId,
+                        username = response.username,
+                        passwordHash = "",
+                        updatedAt = now,
+                        syncState = SyncState.SYNCED
+                    )
                 }
 
                 dao.insertTripMember(
@@ -307,6 +312,7 @@ class TripDetailsViewModel(
                 )
                 loadTripData(trip.tripId)
             }
+            _uiState.value = _uiState.value.copy(addMemberLoading = false)
             setAddMemberDialogVisibility(false)
         }
     }
@@ -385,6 +391,8 @@ data class TripDetailsUiState(
     val debts: List<Debt> = emptyList(),
     val isLoading: Boolean = false,
     val showAddMemberDialog: Boolean = false,
+    val addMemberError: String? = null,
+    val addMemberLoading: Boolean = false,
     val categorySummaries: Map<String, Double> = emptyMap(),
     val currencySummaries: Map<String, Double> = emptyMap(),
     val fetchedSettlementRate: Double? = null

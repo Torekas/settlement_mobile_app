@@ -19,9 +19,10 @@ class SyncWorker(
         val authToken = sessionManager.fetchAuthToken()
         val db = AppDatabase.getDatabase(applicationContext)
         val manager = SyncManager(db.appDao(), SyncClient.createSyncApi(), SyncPrefs(applicationContext))
+        val forceFullSync = inputData.getBoolean("force_full_sync", false)
 
         return try {
-            manager.sync(userSyncId, authToken)
+            manager.sync(userSyncId, authToken, forceFullSync)
             Result.success()
         } catch (_: Exception) {
             Result.retry()
