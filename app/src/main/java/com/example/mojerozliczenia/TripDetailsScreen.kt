@@ -1,4 +1,4 @@
-package com.example.mojerozliczenia
+﻿package com.example.mojerozliczenia
 
 import android.content.Intent
 import android.widget.Toast
@@ -77,6 +77,8 @@ fun TripDetailsScreen(
     var menuExpanded by remember { mutableStateOf(false) }
 
     var selectedDebt by remember { mutableStateOf<Debt?>(null) }
+    var selectedTransactionForEdit by remember { mutableStateOf<Transaction?>(null) }
+    var showEditTransactionDialog by remember { mutableStateOf(false) }
     var memberToRemove by remember { mutableStateOf<User?>(null) }
 
     var isVisible by remember { mutableStateOf(false) }
@@ -465,11 +467,17 @@ fun TripDetailsScreen(
                                     contentPadding = PaddingValues(bottom = 80.dp)
                                 ) {
                                     items(state.transactions) { transaction ->
+                                        val beneficiaryNames = state.transactionBeneficiaryNames[transaction.transactionId].orEmpty()
                                         TransactionItem(
-                                            transaction,
-                                            viewModel.getMemberName(transaction.payerId),
-                                            { viewModel.deleteTransaction(transaction) },
-                                            state.trip?.mainCurrency ?: "PLN"
+                                            transaction = transaction,
+                                            payerName = viewModel.getMemberName(transaction.payerId),
+                                            beneficiaryNames = beneficiaryNames,
+                                            onEdit = {
+                                                selectedTransactionForEdit = transaction
+                                                showEditTransactionDialog = true
+                                            },
+                                            onDelete = { viewModel.deleteTransaction(transaction) },
+                                            mainCurrency = state.trip?.mainCurrency ?: "PLN"
                                         )
                                     }
                                 }
@@ -489,6 +497,43 @@ fun TripDetailsScreen(
                                         color = Color.Gray
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
+                                }
+
+                                val summariesByCurrency = state.settlementSummaries
+                                    .groupBy { it.currency.uppercase() }
+                                    .toSortedMap()
+
+                                summariesByCurrency.forEach { (currency, summaries) ->
+                                    val orderedSummaries = summaries.sortedByDescending { abs(it.netBalance) }
+                                    item {
+                                        Text(
+                                            "Podsumowanie uczestnikow ($currency)",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                            elevation = CardDefaults.cardElevation(1.dp)
+                                        ) {
+                                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                                                orderedSummaries.forEachIndexed { index, summary ->
+                                                    SettlementSummaryRow(
+                                                        name = viewModel.getMemberName(summary.userId),
+                                                        paidAmount = summary.paidAmount,
+                                                        toPay = summary.toPay,
+                                                        toRecover = summary.toRecover,
+                                                        currency = currency
+                                                    )
+                                                    if (index != orderedSummaries.lastIndex) {
+                                                        HorizontalDivider()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                    }
                                 }
 
                                 if (state.debts.isEmpty()) {
@@ -647,6 +692,31 @@ fun TripDetailsScreen(
             )
         }
 
+        if (showEditTransactionDialog && selectedTransactionForEdit != null) {
+            val transaction = selectedTransactionForEdit!!
+            EditTransactionDialog(
+                transaction = transaction,
+                members = state.members,
+                initialBeneficiaryIds = state.transactionBeneficiaryIds[transaction.transactionId].orEmpty().toSet(),
+                onDismiss = {
+                    showEditTransactionDialog = false
+                    selectedTransactionForEdit = null
+                },
+                onConfirm = { description, amount, category, payerId, beneficiaryIds ->
+                    viewModel.updateTransaction(
+                        transaction = transaction,
+                        description = description,
+                        amount = amount,
+                        category = category,
+                        payerId = payerId,
+                        beneficiaryIds = beneficiaryIds
+                    )
+                    showEditTransactionDialog = false
+                    selectedTransactionForEdit = null
+                }
+            )
+        }
+
         if (state.showAddMemberDialog) {
             AddMemberDialog(
                 onDismiss = { viewModel.setAddMemberDialogVisibility(false) },
@@ -732,6 +802,143 @@ fun EditTripDialog(
     }
 }
 
+@Composable
+fun EditTransactionDialog(
+    transaction: Transaction,
+    members: List<User>,
+    initialBeneficiaryIds: Set<Long>,
+    onDismiss: () -> Unit,
+    onConfirm: (String, Double, String, Long, Set<Long>) -> Unit
+) {
+    var description by remember(transaction) { mutableStateOf(transaction.description) }
+    var amountInput by remember(transaction) {
+        mutableStateOf(String.format(Locale.US, "%.2f", transaction.amount))
+    }
+    var selectedCategory by remember(transaction) { mutableStateOf(transaction.category) }
+    var selectedPayerId by remember(transaction) { mutableLongStateOf(transaction.payerId) }
+    var selectedBeneficiaryIds by remember(transaction, initialBeneficiaryIds) {
+        mutableStateOf(initialBeneficiaryIds.toSet())
+    }
+
+    val amountValue = parseFlexibleDecimal(amountInput)
+    val isAmountValid = amountValue != null && amountValue > 0.0
+    val canSave = description.isNotBlank() &&
+        isAmountValid &&
+        selectedPayerId != -1L &&
+        selectedBeneficiaryIds.isNotEmpty()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edytuj zdarzenie") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Opis") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = amountInput,
+                    onValueChange = { amountInput = it },
+                    label = { Text("Kwota") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    isError = !isAmountValid && amountInput.isNotBlank(),
+                    supportingText = {
+                        if (!isAmountValid && amountInput.isNotBlank()) {
+                            Text("Podaj poprawna kwote (moze byc 12,50 albo 12.50)")
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = transaction.currency,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Waluta") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (!transaction.isRepayment) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Kategoria", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(ExpenseCategory.values().toList()) { category ->
+                            FilterChip(
+                                selected = selectedCategory == category.name,
+                                onClick = { selectedCategory = category.name },
+                                label = { Text(category.label) }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Kto zaplacil?", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                members.forEach { member ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedPayerId = member.userId }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedPayerId == member.userId,
+                            onClick = { selectedPayerId = member.userId }
+                        )
+                        Text(member.username)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Dla kogo?", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                members.forEach { member ->
+                    val checked = selectedBeneficiaryIds.contains(member.userId)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val updated = selectedBeneficiaryIds.toMutableSet()
+                                if (checked) updated.remove(member.userId) else updated.add(member.userId)
+                                selectedBeneficiaryIds = updated
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = {
+                                val updated = selectedBeneficiaryIds.toMutableSet()
+                                if (it) updated.add(member.userId) else updated.remove(member.userId)
+                                selectedBeneficiaryIds = updated
+                            }
+                        )
+                        Text(member.username)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = canSave,
+                onClick = {
+                    val amount = amountValue ?: return@Button
+                    onConfirm(description.trim(), amount, selectedCategory, selectedPayerId, selectedBeneficiaryIds)
+                }
+            ) {
+                Text("Zapisz")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Anuluj") }
+        }
+    )
+}
+
 // FUNKCJA DONUT PIE CHART
 @Composable
 fun DonutPieChart(data: Map<String, Double>, modifier: Modifier = Modifier) {
@@ -789,13 +996,14 @@ fun SettleDebtDialog(
         if (fetchedRate != null) rateString = fetchedRate.toString()
     }
 
-    val inputAmount = amountString.toDoubleOrNull() ?: 0.0
-    val inputRate = rateString.toDoubleOrNull() ?: 1.0
+    val inputAmount = parseFlexibleDecimal(amountString) ?: 0.0
+    val inputRate = parseFlexibleDecimal(rateString) ?: 1.0
     val debtCurrency = debt.currency.uppercase()
     val selectedCurrency = currency.uppercase()
     val showRateField = selectedCurrency != debtCurrency
     val amountInDebtCurrency = if (showRateField) inputAmount * inputRate else inputAmount
     val difference = amountInDebtCurrency - debt.amount
+    val isOverpayment = difference > 0.01
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -845,13 +1053,12 @@ fun SettleDebtDialog(
                         Text("Wartość w $debtCurrency: ${String.format(Locale.US, "%.2f", amountInDebtCurrency)}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         Spacer(Modifier.height(4.dp))
                     }
-                    if (difference > 0.01) {
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("⚠️ Nadpłata!", color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
-                                Text("$toName będzie winien $fromName: ${String.format(Locale.US, "%.2f", difference)} $debtCurrency", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
+                    if (isOverpayment) {
+                        Text(
+                            "Kwota jest za duza. Maksymalnie: ${String.format(Locale.US, "%.2f", debt.amount)} $debtCurrency",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     } else if (difference < -0.01) {
                         Text("Pozostanie do spłaty: ${String.format(Locale.US, "%.2f", abs(difference))} $debtCurrency", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     } else {
@@ -861,10 +1068,17 @@ fun SettleDebtDialog(
             }
         },
         confirmButton = {
-            Button(onClick = { if (inputAmount > 0) onConfirm(inputAmount, selectedCurrency, inputRate) }) { Text("Zatwierdź") }
+            Button(
+                onClick = { if (inputAmount > 0 && !isOverpayment) onConfirm(inputAmount, selectedCurrency, inputRate) },
+                enabled = inputAmount > 0 && !isOverpayment
+            ) { Text("Zatwierdź") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
     )
+}
+
+private fun parseFlexibleDecimal(input: String): Double? {
+    return input.trim().replace(',', '.').toDoubleOrNull()
 }
 
 @Composable
@@ -875,6 +1089,40 @@ fun UserAvatar(name: String, modifier: Modifier = Modifier) {
         Box(modifier = Modifier.size(48.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) { Text(initials, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
         Spacer(Modifier.height(4.dp))
         Text(name, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    }
+}
+
+@Composable
+fun SettlementSummaryRow(name: String, paidAmount: Double, toPay: Double, toRecover: Double, currency: String) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+        Text(
+            text = name,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "Zaplacil: ${String.format(Locale.US, "%.2f", paidAmount)} $currency",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+            Text(
+                text = "Oddaje: ${String.format(Locale.US, "%.2f", toPay)} $currency",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Odzyska: ${String.format(Locale.US, "%.2f", toRecover)} $currency",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF2E7D32),
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -905,12 +1153,23 @@ fun ModernDebtItem(fromName: String, toName: String, amount: Double, currency: S
 }
 
 @Composable
-fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () -> Unit, mainCurrency: String) {
+fun TransactionItem(
+    transaction: Transaction,
+    payerName: String,
+    beneficiaryNames: List<String>,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    mainCurrency: String
+) {
     val context = LocalContext.current
     val isRepayment = transaction.isRepayment
     val icon = if (isRepayment) Icons.Default.CurrencyExchange else try { getCategoryIcon(transaction.category) } catch (e: Exception) { Icons.Default.MiscellaneousServices }
     val gradientColors = if (isRepayment) listOf(Color(0xFF66BB6A), Color(0xFF2E7D32)) else try { getCategoryGradient(transaction.category) } catch (e: Exception) { listOf(Color.Gray, Color.LightGray) }
     val logoUrl = if (!isRepayment) try { LogoUtils.getLogoUrl(transaction.description) } catch(e: Exception) { null } else null
+    val beneficiariesText = beneficiaryNames.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: "brak danych"
+    val dateText = remember(transaction.date) {
+        SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault()).format(Date(transaction.date))
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
@@ -938,6 +1197,18 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
             Column(modifier = Modifier.weight(1f)) {
                 Text(transaction.description, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(if(isRepayment) "$payerName spłaca" else "$payerName (${transaction.category})", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+                Text(
+                    text = if (isRepayment) "Do: $beneficiariesText" else "Dla: $beneficiariesText",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = dateText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray
+                )
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text("${String.format(Locale.US, "%.2f", transaction.amount)} ${transaction.currency}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
@@ -946,7 +1217,14 @@ fun TransactionItem(transaction: Transaction, payerName: String, onDelete: () ->
                     Text("≈ ${String.format(Locale.US, "%.2f", converted)} $mainCurrency", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
             }
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Usuń", tint = Color.Gray.copy(alpha = 0.5f)) }
+            Column {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, "Edytuj", tint = Color.Gray.copy(alpha = 0.7f))
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, "Usuń", tint = Color.Gray.copy(alpha = 0.5f))
+                }
+            }
         }
     }
 }
@@ -985,3 +1263,4 @@ fun AddMemberDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Anuluj") } }
     )
 }
+

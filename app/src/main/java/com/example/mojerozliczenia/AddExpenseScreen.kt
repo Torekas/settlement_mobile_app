@@ -142,7 +142,7 @@ fun AddExpenseScreen(tripId: Long, viewModel: AddExpenseViewModel, onBack: () ->
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("Kwota") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f),
+                OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("Kwota") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f),
                     trailingIcon = {
                         if (isScanning) {
                             CircularProgressIndicator(Modifier.size(24.dp))
@@ -221,8 +221,8 @@ fun AddExpenseScreen(tripId: Long, viewModel: AddExpenseViewModel, onBack: () ->
             Spacer(modifier = Modifier.height(32.dp))
             Button(
                 onClick = {
-                    val amountValue = amount.toDoubleOrNull()
-                    val rateValue = exchangeRateInput.toDoubleOrNull() ?: 1.0
+                    val amountValue = parseFlexibleDecimal(amount)
+                    val rateValue = parseFlexibleDecimal(exchangeRateInput) ?: 1.0
                     if (title.isNotBlank() && amountValue != null) {
                         viewModel.saveExpense(title, amountValue, currency, selectedCategory.name, rateValue, onBack)
                     }
@@ -232,4 +232,8 @@ fun AddExpenseScreen(tripId: Long, viewModel: AddExpenseViewModel, onBack: () ->
             ) { Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text("Zapisz wydatek") }
         }
     }
+}
+
+private fun parseFlexibleDecimal(input: String): Double? {
+    return input.trim().replace(',', '.').toDoubleOrNull()
 }

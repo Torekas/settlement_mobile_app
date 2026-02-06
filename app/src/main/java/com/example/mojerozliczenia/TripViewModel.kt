@@ -128,7 +128,7 @@ class TripViewModel(
                     tripId = newTripId,
                     payerId = payerId,
                     amount = txData.amount,
-                    currency = txData.currency,
+                    currency = txData.currency.trim().uppercase(Locale.getDefault()).ifBlank { data.mainCurrency.uppercase(Locale.getDefault()) },
                     description = txData.description,
                     category = txData.category,
                     exchangeRate = txData.exchangeRate,

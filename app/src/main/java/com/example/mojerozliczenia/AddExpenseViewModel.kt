@@ -171,11 +171,12 @@ class AddExpenseViewModel(private val dao: AppDao) : ViewModel() {
 
         viewModelScope.launch {
             val now = System.currentTimeMillis()
+            val normalizedCurrency = currency.trim().uppercase(Locale.getDefault()).ifBlank { mainCurrency.uppercase(Locale.getDefault()) }
             val transaction = Transaction(
                 tripId = tripId,
                 payerId = state.payerId,
                 amount = amount,
-                currency = currency,
+                currency = normalizedCurrency,
                 description = title,
                 category = category,
                 exchangeRate = exchangeRate,
